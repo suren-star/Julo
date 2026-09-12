@@ -1,5 +1,7 @@
+import { isTaskExecutionType } from './task-types.js';
+
 const STORAGE_KEY = 'julo_web_workspace_v1';
-const WORKSPACE_VERSION = 3;
+const WORKSPACE_VERSION = 4;
 const VALID_STATUSES = new Set(['todo', 'doing', 'done']);
 const VALID_PRIORITIES = new Set(['low', 'normal', 'high', 'urgent']);
 const VALID_WORKSPACE_ROLES = new Set(['owner', 'admin', 'member', 'viewer', 'guest']);
@@ -44,6 +46,7 @@ const normalizeTask = (task, index, projectIds) => {
     status: VALID_STATUSES.has(task?.status) ? task.status : 'todo',
     projectId: projectIds.has(projectId) ? projectId : '',
     priority: VALID_PRIORITIES.has(task?.priority) ? task.priority : 'normal',
+    executionType: isTaskExecutionType(task?.executionType) ? task.executionType : '',
     dueDate: asText(task?.dueDate),
     tags: Array.isArray(task?.tags) ? task.tags.filter((tag) => typeof tag === 'string').map((tag) => tag.trim()).filter(Boolean) : [],
     createdAt: asText(task?.createdAt, now()),

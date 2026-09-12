@@ -1,13 +1,13 @@
 {
-  "name": "planer",
-  "version": "1.0.0",
+  "name": "julo",
+  "version": "0.1.0-beta.1",
   "description": "Julo desktop task manager — tasks, planning, time tracking and local-first data",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "check": "node --check main.js && node --check preload.js && node --check src/js/storage.js && node --check src/js/timer.js && node --check src/js/sync.js && node --check src/js/app.js",
-    "test": "npm run check",
+    "check": "node --check main.js && node --check preload.js && node --check lib/data-migrations.js && node --check lib/profile-migration.js && node --check src/js/storage.js && node --check src/js/timer.js && node --check src/js/sync.js && node --check src/js/app.js",
+    "test": "node --test tests/*.test.js",
     "build": "electron-packager . Julo --platform=win32 --arch=x64 --icon=src/assets/icon.ico --out=dist --overwrite --prune=true --ignore=\"([/\\\\]|^)(backup|dist|Julo-win32-x64|Planer-win32-x64|\\.git|data|PROJECT_RULES\\.md)\""
   },
   "keywords": [
@@ -25,5 +25,6 @@
   },
   "dependencies": {
     "dompurify": "^3.4.15"
-  }
+  },
+  "productName": "Julo"
 }

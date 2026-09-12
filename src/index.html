@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' data: blob:; connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; object-src 'none'; base-uri 'self';">
-  <title>Мой Планер</title>
+  <title>Julo</title>
   <link rel="stylesheet" href="css/style.css">
   <!-- Google Fonts: Inter & JetBrains Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -38,7 +38,7 @@
       <div class="sidebar-header" style="display: flex; align-items: center; justify-content: space-between;">
         <div class="logo">
           <span class="logo-icon">📓</span>
-          <span class="logo-text">Планер</span>
+          <span class="logo-text">Julo</span>
         </div>
         <div style="display: flex; align-items: center; gap: 6px;">
           <button type="button" class="btn-sm btn-primary" onclick="App.openQuickCaptureModal()" title="Быстрое добавление задачи (Ctrl+N или Alt+Space)" style="font-size: 11.5px; padding: 4px 8px; border-radius: var(--radius-sm);">
@@ -111,11 +111,6 @@
 
       <!-- Нижний блок: Архив, Статистика, Облако и Настройки -->
       <div class="sidebar-footer">
-        <div class="nav-item nav-sync" id="sidebar-sync-btn" onclick="App.triggerManualSync()" title="Нажмите для синхронизации с облаком">
-          <span class="nav-icon" id="sidebar-sync-icon">☁️</span>
-          <span class="nav-label" id="sidebar-sync-label">Облако: Выкл</span>
-          <span class="sync-spin-icon" id="sidebar-sync-spinner" style="display: none; animation: spin 1s linear infinite;">🔄</span>
-        </div>
         <div class="nav-item nav-stats" id="nav-stats" onclick="App.selectView('stats')">
           <span class="nav-icon">📊</span>
           <span class="nav-label">Статистика времени</span>
@@ -749,7 +744,7 @@
         <header class="content-header">
           <div class="header-titles">
             <h1 class="view-title">📖 Справка и руководство пользователя</h1>
-            <p class="view-subtitle">Подробная интерактивная инструкция по всем возможностям, горячим клавишам и облачной синхронизации</p>
+            <p class="view-subtitle">Подробная интерактивная инструкция по возможностям Julo, горячим клавишам и локальному хранению данных</p>
           </div>
           <div class="header-actions">
             <div class="search-box" style="width: 260px;">
@@ -764,7 +759,6 @@
           <button class="btn-subtle btn-help-nav" onclick="App.scrollToHelpTopic('topic-reminders')">🔔 Напоминания</button>
           <button class="btn-subtle btn-help-nav" onclick="App.scrollToHelpTopic('topic-timer')">⏱️ Таймеры и отдых</button>
           <button class="btn-subtle btn-help-nav" onclick="App.scrollToHelpTopic('topic-hotkeys')">⌨️ Горячие клавиши</button>
-          <button class="btn-subtle btn-help-nav" onclick="App.scrollToHelpTopic('topic-webdav')">☁️ Облако WebDAV</button>
           <button class="btn-subtle btn-help-nav" onclick="App.scrollToHelpTopic('topic-backup')">💾 Сохранность и бэкапы</button>
           <button class="btn-subtle btn-help-nav" onclick="App.scrollToHelpTopic('topic-appearance')">🎨 Темы и звуки</button>
           <button class="btn-subtle btn-help-nav" onclick="App.scrollToHelpTopic('topic-timeline')" style="font-weight: 700; color: var(--accent-primary);">⏱️ Тайм-блокинг 🌟</button>
@@ -910,7 +904,7 @@
             <div class="help-card-body">
               <div class="help-section-item">
                 <h5>⚡ Глобальный быстрый ввод (Global Hotkey)</h5>
-                <p>Находясь в абсолютно любой программе Windows (в браузере, Excel, игре), нажмите <kbd>Alt</kbd> + <kbd>Space</kbd> (или ваше настроенное сочетание). Поверх всех окон откроется компактное окно ввода задачи. Введите текст, выберите дату/проект и нажмите <kbd>Enter</kbd> — окно мгновенно закроется, а задача сохранится и синхронизируется в облако.</p>
+                <p>Находясь в абсолютно любой программе Windows (в браузере, Excel, игре), нажмите <kbd>Alt</kbd> + <kbd>Space</kbd> (или ваше настроенное сочетание). Поверх всех окон откроется компактное окно ввода задачи. Введите текст, выберите дату/проект и нажмите <kbd>Enter</kbd> — окно мгновенно закроется, а задача сохранится локально.</p>
               </div>
               <div class="help-section-item">
                 <h5>🛠 Настройка сочетания клавиш</h5>
@@ -922,7 +916,6 @@
                   <tr><td><kbd>Ctrl</kbd> + <kbd>N</kbd></td><td>Быстрое добавление новой задачи</td></tr>
                   <tr><td><kbd>Ctrl</kbd> + <kbd>F</kbd></td><td>Фокус на строку поиска</td></tr>
                   <tr><td><kbd>Ctrl</kbd> + <kbd>B</kbd></td><td>Начать / завершить перерыв (☕)</td></tr>
-                  <tr><td><kbd>Ctrl</kbd> + <kbd>S</kbd></td><td>Принудительная синхронизация с облаком</td></tr>
                   <tr><td><kbd>Ctrl</kbd> + <kbd>R</kbd></td><td>Перезагрузить интерфейс</td></tr>
                   <tr><td><kbd>Esc</kbd></td><td>Закрыть активное модальное окно</td></tr>
                 </table>
@@ -930,37 +923,7 @@
             </div>
           </div>
 
-          <!-- Раздел 5: Облачная синхронизация WebDAV -->
-          <div class="help-card" id="topic-webdav">
-            <div class="help-card-header" onclick="App.toggleHelpCard(this)">
-              <div class="help-header-title">
-                <span class="help-icon">☁️</span>
-                <div>
-                  <h3 class="help-title">5. Облачная синхронизация WebDAV (Mail.ru и др.)</h3>
-                  <p class="help-desc">Как настроить автоматическую синхронизацию между вашим ПК и ноутбуком</p>
-                </div>
-              </div>
-              <span class="help-toggle-arrow">▾</span>
-            </div>
-            <div class="help-card-body">
-              <div class="help-section-item">
-                <h5>🚀 Пошаговая настройка для Облака Mail.ru</h5>
-                <ol class="help-steps-list">
-                  <li>Зайдите в ваш почтовый ящик Mail.ru в браузере.</li>
-                  <li>Перейдите в <strong>Настройки ➔ Безопасность ➔ «Пароли для внешних приложений»</strong>.</li>
-                  <li>Нажмите <em>«Добавить»</em>, укажите имя (например, <code>Планер</code>) и скопируйте созданный системой пароль.</li>
-                  <li>В приложении Планер откройте <code>⚙️ Настройки</code> ➔ вкладка <code>☁️ Облако WebDAV</code>.</li>
-                  <li>Введите ваш логин (почту <code>ваша_почта@mail.ru</code>), вставьте скопированный пароль приложения и нажмите <strong>«💾 Сохранить и проверить связь»</strong>.</li>
-                </ol>
-              </div>
-              <div class="help-section-item">
-                <h5>🔄 Как работает авто-синхронизация?</h5>
-                <p>При любом изменении задачи (создание, отметка, изменение таймера, редактирование) программа автоматически через 2.5 секунды отправляет свежие данные в защищенный файл <code>tasks_data.json</code> в облаке. При работе с двух компьютеров система плавно объединяет изменения без потери данных.</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Раздел 6: Сохранность данных -->
+          <!-- Сохранность данных -->
           <div class="help-card" id="topic-backup">
             <div class="help-card-header" onclick="App.toggleHelpCard(this)">
               <div class="help-header-title">
@@ -1839,7 +1802,6 @@
       <!-- Навигационные вкладки настроек -->
       <div class="settings-tabs-nav">
         <button type="button" class="settings-tab-btn active" id="tab-btn-hotkeys" onclick="App.switchSettingsTab('hotkeys')">⌨️ Клавиши</button>
-        <button type="button" class="settings-tab-btn" id="tab-btn-webdav" onclick="App.switchSettingsTab('webdav')">☁️ Облако</button>
         <button type="button" class="settings-tab-btn" id="tab-btn-vaults" onclick="App.switchSettingsTab('vaults')">🏛️ Базы данных</button>
         <button type="button" class="settings-tab-btn" id="tab-btn-backup" onclick="App.switchSettingsTab('backup')">💾 Бэкапы</button>
         <button type="button" class="settings-tab-btn" id="tab-btn-appearance" onclick="App.switchSettingsTab('appearance')">🎨 Темы</button>
@@ -1917,67 +1879,7 @@
           </div>
         </div>
 
-        <!-- ВКЛАДКА 2: Облачная синхронизация WebDAV -->
-        <div class="settings-tab-panel" id="settings-panel-webdav">
-          <div class="settings-section">
-            <h4>☁️ Облачная синхронизация (WebDAV / Облако Mail.ru)</h4>
-            <p class="text-muted">Синхронизируйте задачи, проекты и время между ПК и ноутбуком через Облако Mail.ru или любой WebDAV сервер.</p>
-            
-            <div class="form-group" style="margin-top: 10px;">
-              <label class="toggle-row">
-                <input type="checkbox" id="setting-webdav-enabled" onchange="App.onWebdavEnabledToggle(this.checked)">
-                <span class="toggle-label" style="font-weight: 600;">Включить облачную синхронизацию данных</span>
-              </label>
-            </div>
-
-            <div id="webdav-config-fields" style="margin-top: 10px; display: flex; flex-direction: column; gap: 10px;">
-              <div class="form-group">
-                <label style="font-size: 12.5px; color: var(--text-secondary); margin-bottom: 4px; display: block;">Адрес сервера WebDAV:</label>
-                <input type="text" id="setting-webdav-server" class="modal-input" value="https://webdav.cloud.mail.ru" placeholder="https://webdav.cloud.mail.ru">
-              </div>
-
-              <div class="form-row" style="display: flex; gap: 10px;">
-                <div class="form-group" style="flex: 1.2;">
-                  <label style="font-size: 12.5px; color: var(--text-secondary); margin-bottom: 4px; display: block;">Логин / Email (Mail.ru):</label>
-                  <input type="text" id="setting-webdav-username" class="modal-input" placeholder="user@mail.ru">
-                </div>
-
-                <div class="form-group" style="flex: 1;">
-                  <label style="font-size: 12.5px; color: var(--text-secondary); margin-bottom: 4px; display: block;">Папка в облаке:</label>
-                  <input type="text" id="setting-webdav-folder" class="modal-input" value="PlanerSync" placeholder="PlanerSync">
-                </div>
-              </div>
-
-              <div class="form-group">
-                <label style="font-size: 12.5px; color: var(--text-secondary); margin-bottom: 4px; display: block;">
-                  Пароль WebDAV (Пароль для внешних приложений):
-                </label>
-                <div style="display: flex; gap: 6px;">
-                  <input type="password" id="setting-webdav-password" class="modal-input" placeholder="Пароль для внешних приложений" style="flex: 1;">
-                  <button type="button" class="btn-subtle" onclick="App.toggleWebdavPasswordVisibility()" title="Показать/скрыть пароль" style="padding: 0 12px;">👁️</button>
-                </div>
-              </div>
-
-              <div class="settings-buttons-row" style="margin-top: 6px; display: flex; gap: 8px; flex-wrap: wrap;">
-                <button type="button" class="btn-primary" onclick="App.saveWebdavSettingsAndTest()">💾 Сохранить и проверить связь</button>
-                <button type="button" class="btn-subtle" onclick="App.triggerManualSync()">🔄 Синхронизировать сейчас</button>
-              </div>
-
-              <div id="webdav-status-message" style="display: none; padding: 8px 12px; border-radius: 6px; font-size: 12.5px; margin-top: 6px;"></div>
-
-              <div class="settings-hint-box" style="background: rgba(79, 110, 247, 0.08); border-left: 3px solid var(--accent); padding: 8px 12px; border-radius: 4px; margin-top: 6px;">
-                <p style="font-size: 12px; color: var(--text-secondary); margin: 0; line-height: 1.4;">
-                  💡 <b>Как настроить для Облака Mail.ru:</b><br>
-                  1. Сервер: <code>https://webdav.cloud.mail.ru</code><br>
-                  2. В поле логина укажите ваш email.<br>
-                  3. В поле пароля укажите специальный <b>«Пароль для внешних приложений»</b> (создается в Mail.ru: <i>Настройки почты → Безопасность → Пароли для внешних приложений</i>).
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ВКЛАДКА 3: Сохранность данных -->
+        <!-- Сохранность данных -->
         <div class="settings-tab-panel" id="settings-panel-backup">
           <div class="settings-section">
             <h4>💾 Сохранность данных</h4>
@@ -2005,7 +1907,7 @@
             <div class="form-group" style="margin-top: 12px;">
               <label class="toggle-row">
                 <input type="checkbox" id="setting-autostart-windows" onchange="App.onAutostartWindowsToggle(this.checked)">
-                <span class="toggle-label" style="font-weight: 600;">Запускать Планер автоматически при старте Windows</span>
+                <span class="toggle-label" style="font-weight: 600;">Запускать Julo автоматически при старте Windows</span>
               </label>
               <p class="text-muted" style="font-size: 11.5px; margin-top: 4px; margin-bottom: 0;">Программа будет бесшумно запускаться в свернутом виде вместе с операционной системой Windows.</p>
             </div>
@@ -2245,13 +2147,6 @@
           </div>
         </div>
 
-        <div class="form-group">
-          <label for="modal-vault-cloud-folder" style="cursor: pointer;">Папка в облаке WebDAV (опционально):</label>
-          <input type="text" id="modal-vault-cloud-folder" class="modal-input" placeholder="Например: /Planer/Work/ или /Planer/Personal/" style="cursor: text;" autocomplete="off">
-          <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 4px;">
-            Для изоляции баз в одном облаке Mail.ru / Yandex укажите отдельную подпапку.
-          </div>
-        </div>
       </div>
       <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 8px;">
         <button type="button" class="btn-subtle" onclick="App.closeModal('modal-create-vault')">Отмена</button>

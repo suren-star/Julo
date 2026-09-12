@@ -36,11 +36,9 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          rm -f scripts/stabilize-beta-v2.py
-          rm -f .github/workflows/stabilize-beta-v2.yml
-          git add -A
+          git add main.js package.json package-lock.json src/index.html src/js/app.js src/js/storage.js
           if git diff --cached --quiet; then
-            echo "No changes to commit"
+            echo "No application changes to commit"
             exit 0
           fi
           git commit -m "feat: stabilize Julo profile and data migrations"

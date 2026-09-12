@@ -1,0 +1,130 @@
+JULO — WEBAPP SECURITY REMEDIATION REPORT
+==========================================
+Հաշվետվություն №001
+Ամսաթիվ՝ 2026-09-12
+Repository՝ suren-star/Julo
+Scope՝ միայն webapp/ + web deployment/repository security
+Desktop՝ audit/remediation scope-ից բացառված
+
+ԿԱՏԱՐՎԱԾ ՇՏԿՈՒՄՆԵՐ
+-------------------
+
+1. GitHub Actions attack surface-ը կրճատվել է
+   - Հեռացվել են հին one-shot/write-capable workflows-ը՝
+     * bootstrap-baseline.yml
+     * publish-web-preview.yml
+     * restructure-platform.yml
+     * restructure-platform-v2.yml
+   - Repo-ում մնացել է միայն անհրաժեշտ deploy-webapp-pages.yml workflow-ը։
+
+2. Pages deploy workflow-ը harden է արվել
+   - Default permission՝ contents: read։
+   - Build job-ը չունի Pages write կամ id-token write իրավունք։
+   - Միայն deploy job-ն ունի pages: write + id-token: write։
+   - Checkout-ում persist-credentials: false։
+   - Third-party GitHub Actions references-ը pin են արված կոնկրետ commit SHA-ներով։
+   - Ավելացվել են timeout սահմանափակումներ։
+
+3. Dependency security gate
+   - Յուրաքանչյուր deploy-ից առաջ պարտադիր աշխատում է՝
+     npm audit --audit-level=high
+   - High/Critical dependency finding-ի դեպքում deploy pipeline-ը կանգ է առնում։
+
+4. Source security gate
+   - Ավելացվել է webapp/scripts/security-check.mjs։
+   - Ստուգվում են պատահաբար source-ում հայտնված credential pattern-ները՝ OpenAI-style secrets, GitHub PAT, AWS keys, client_secret։
+   - Ստուգվում են վտանգավոր code constructs՝ eval(), new Function(), direct innerHTML assignment, dangerouslySetInnerHTML։
+   - Ստուգվում է CSP/referrer policy-ի առկայությունը։
+   - Security scanner-ը պարտադիր CI քայլ է։
+
+5. Browser Content Security Policy
+   - webapp/index.html-ում ավելացվել է Content-Security-Policy։
+   - script-src սահմանափակված է same-origin source-ով։
+   - object-src none։
+   - base-uri none։
+   - frame-src none։
+   - form-action same-origin։
+   - connect-src սահմանափակված է same-origin/ws/wss։
+   - Ավելացվել է no-referrer policy։
+
+6. Backup import hardening
+   - Backup text-ի առավելագույն չափ՝ 4 MiB-equivalent character limit։
+   - Սահմանափակվել են projects/tasks/members քանակները։
+   - Սահմանափակվել են comments/tags քանակները մեկ task-ի համար։
+   - Սահմանափակվել են հիմնական user-controlled text դաշտերի չափերը։
+   - Unsupported structured backup format versions-ը մերժվում են։
+   - Arbitrary settings keys այլևս չեն փոխանցվում workspace state-ին։ Պահպանվում են միայն whitelist եղած theme/language դաշտերը։
+   - Ավելացվել են regression/security tests oversized/malformed backup-ների համար։
+
+7. Stale public build artifact cleanup
+   - webapp/dist այլևս tracked չէ repository-ում։
+   - GitHub Pages-ը deploy է անում միայն CI build artifact-ը։
+   - Հեռացվել է երկրորդ stale/raw preview source-ը։
+
+VALIDATION
+----------
+Security hardening commit՝ 2b4f436f995141474b9608ad795e6700948c3c66
+GitHub Actions run՝ 34714010805
+
+Արդյունք՝
+- Install dependencies: SUCCESS
+- npm audit --audit-level=high: SUCCESS
+- source security checks: SUCCESS
+- regression/security tests: SUCCESS
+- production build: SUCCESS
+- Pages artifact upload: SUCCESS
+- GitHub Pages deploy: SUCCESS
+
+ՄՆԱՑԱԾ ԲԱՑ ԿԵՏԵՐ / ARCHITECTURAL BLOCKERS
+------------------------------------------
+
+A. HIGH — Server-side authentication/authorization չկա
+   Ներկայիս role model-ը դեռ client-side/localStorage model է։
+   Սա չի կարող համարվել անվտանգության սահման իրական multi-user/cloud համակարգում։
+
+   Պետք է փակվի backend փուլում՝
+   - authentication
+   - server-side session/token validation
+   - server-side workspace/project authorization
+   - server-owned roles/memberships
+   - API-ի կողմից յուրաքանչյուր object access-ի ստուգում
+   - client role/currentUserId-ին չվստահել
+
+B. HIGH — main branch protection դեռ միացված չէ
+   GitHub connector-ը այս session-ում չունի repository administration write action branch protection/ruleset ստեղծելու համար։
+   Այս պատճառով այս կետը կոդով ավտոմատ փակել հնարավոր չէր։
+
+   GitHub-ում պետք է միացնել՝
+   Settings → Branches կամ Rules → Rulesets → main
+   Առաջարկվող նվազագույն կանոններ՝
+   - Require pull request before merging
+   - Require status checks to pass
+   - Require branch to be up to date
+   - Block force pushes
+   - Block deletions
+   - Restrict bypass հնարավորության դեպքում
+
+C. MEDIUM — Dedicated origin/custom domain
+   Julo-ն դեռ գտնվում է suren-star.github.io/Julo/ path-ում։
+   Browser storage-ը origin-scoped է, ոչ թե path-scoped։
+   Մինչև զգայուն կազմակերպական տվյալների production օգտագործումը ցանկալի է Julo-ին տալ dedicated custom domain/origin։
+
+D. LIMITATION — localStorage plaintext
+   Local-first beta-ում workspace data-ն browser localStorage-ում plaintext է։
+   Dedicated origin + CSP-ը նվազեցնում են web risk-ը, բայց OS/browser profile հասանելիություն ունեցող անձից չեն պաշտպանում։
+   Եթե հետագայում պահվեն զգայուն փաստաթղթեր/տվյալներ, անհրաժեշտ է վերանայել storage architecture-ը։
+
+ԸՆԴՀԱՆՈՒՐ ՎԻՃԱԿ ՇՏԿՈՒՄՆԵՐԻՑ ՀԵՏՈ
+-----------------------------------
+- Direct exposed API credentials: ՉԵՆ ՀԱՅՏՆԱԲԵՐՎԵԼ
+- Known high dependency vulnerabilities in current CI: ՉԿԱՆ
+- Source secret/dangerous-code regression gate: ՄԻԱՑՎԱԾ Է
+- CSP: ՄԻԱՑՎԱԾ Է
+- Backup abuse limits: ՄԻԱՑՎԱԾ ԵՆ
+- Old write workflows: ՀԵՌԱՑՎԱԾ ԵՆ
+- Stale tracked dist: ՀԵՌԱՑՎԱԾ Է
+- Pages deploy: SUCCESS
+- Main branch protection: ԲԱՑ Է / GitHub admin action է պահանջվում
+- Server-side auth/authorization: ԲԱՑ Է / backend փուլ է պահանջվում
+
+Եզրակացություն՝ Julo Webapp-ի ընթացիկ local-first beta attack surface-ը զգալիորեն կրճատվել և CI security guardrails-ով ամրացվել է։ Իրական public multi-user production readiness-ի հիմնական մնացած blocker-ներն են server-side auth/authorization-ը և GitHub main branch protection-ը։

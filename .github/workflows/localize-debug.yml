@@ -1,0 +1,43 @@
+name: Debug Armenian localization
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/localize-debug.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install deep-translator beautifulsoup4
+      - name: Extract and run localization script
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re, textwrap
+          src=Path('.github/workflows/localize-desktop-hy.yml').read_text(encoding='utf-8')
+          m=re.search(r"cat > /tmp/localize\.py <<'PY'\n(.*?)\n\s+PY\n",src,re.S)
+          if not m: raise SystemExit('localization script not found')
+          Path('/tmp/localize.py').write_text(textwrap.dedent(m.group(1)),encoding='utf-8')
+          PY
+          set +e
+          python /tmp/localize.py > localization-debug.log 2>&1
+          code=$?
+          echo "exit_code=$code" >> localization-debug.log
+          tail -n 120 localization-debug.log
+          exit 0
+      - name: Commit debug log
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add localization-debug.log
+          git commit -m "chore: capture localization debug log"
+          git push origin HEAD:main

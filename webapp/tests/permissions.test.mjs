@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { can, canManageMemberRole, visibleProjectsForMember } from '../src/lib/permissions.js';
+import { can, canForMember, canManageMemberRole, visibleProjectsForMember } from '../src/lib/permissions.js';
 
 test('workspace roles expose expected permissions', () => {
   assert.equal(can('owner', 'members.manage'), true);
@@ -10,6 +10,14 @@ test('workspace roles expose expected permissions', () => {
   assert.equal(can('viewer', 'tasks.update'), false);
   assert.equal(can('viewer', 'workspace.export'), true);
   assert.equal(can('guest', 'projects.create'), false);
+});
+
+test('guest permissions are scoped to assigned project role', () => {
+  const guest = { role: 'guest', projectRoles: { p1: 'editor', p2: 'viewer' } };
+  assert.equal(canForMember(guest, 'tasks.create', 'p1'), true);
+  assert.equal(canForMember(guest, 'tasks.update', 'p1'), true);
+  assert.equal(canForMember(guest, 'tasks.update', 'p2'), false);
+  assert.equal(canForMember(guest, 'projects.create', 'p1'), false);
 });
 
 test('only owner can promote or demote owner role', () => {

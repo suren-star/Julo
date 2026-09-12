@@ -1,0 +1,42 @@
+name: Publish Julo Web Preview
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-web-preview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+
+      - name: Install dependencies
+        working-directory: webapp
+        run: npm ci
+
+      - name: Build webapp
+        working-directory: webapp
+        run: npm run build
+
+      - name: Commit preview build
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f webapp/dist
+          git diff --cached --quiet && exit 0
+          git commit -m "build(web): publish browser preview"
+          git push origin HEAD:main

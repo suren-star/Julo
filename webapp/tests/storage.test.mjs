@@ -13,12 +13,13 @@ test('normalizes legacy workspace data safely', () => {
     settings: { theme: 'dark' },
   });
 
-  assert.equal(migrated.version, 4);
+  assert.equal(migrated.version, 5);
   assert.equal(migrated.settings.theme, 'dark');
   assert.equal(migrated.settings.language, 'hy');
   assert.deepEqual(migrated.tasks[0].tags, ['a']);
   assert.equal(migrated.tasks[0].executionType, '');
   assert.equal(migrated.tasks[0].dueDate, '');
+  assert.deepEqual(migrated.tasks[0].comments, []);
   assert.equal(migrated.tasks[1].projectId, '');
   assert.equal(migrated.tasks[1].status, 'todo');
   assert.equal(migrated.tasks[1].priority, 'normal');
@@ -57,6 +58,26 @@ test('drops unknown task execution types without inventing a category', () => {
   assert.equal(migrated.tasks[0].dueDate, '2026-09-30');
 });
 
+test('normalizes task comments and removes empty comment text', () => {
+  const migrated = normalizeWorkspace({
+    projects: [{ id: 'p1', name: 'Project' }],
+    tasks: [{
+      id: 't1',
+      title: 'Task',
+      projectId: 'p1',
+      comments: [
+        { id: 'c1', authorId: 'u1', authorName: 'Անի', text: '  Կատարված է  ', createdAt: '2026-09-12T12:00:00.000Z' },
+        { id: 'c2', authorName: 'Անի', text: '   ' },
+      ],
+    }],
+    settings: {},
+  });
+
+  assert.equal(migrated.tasks[0].comments.length, 1);
+  assert.equal(migrated.tasks[0].comments[0].text, 'Կատարված է');
+  assert.equal(migrated.tasks[0].comments[0].authorName, 'Անի');
+});
+
 test('preserves valid members and guest project access', () => {
   const migrated = normalizeWorkspace({
     projects: [{ id: 'p1', name: 'Project' }, { id: 'p2', name: 'Other' }],
@@ -73,7 +94,7 @@ test('preserves valid members and guest project access', () => {
   assert.deepEqual(migrated.members[1].projectRoles, { p1: 'viewer' });
 });
 
-test('round-trips a Julo backup', () => {
+test('round-trips a Julo backup with comments', () => {
   const source = normalizeWorkspace({
     projects: [{ id: 'p1', name: 'Աշխատանք' }],
     tasks: [{
@@ -84,6 +105,7 @@ test('round-trips a Julo backup', () => {
       priority: 'normal',
       executionType: 'review_report',
       dueDate: '2026-09-20',
+      comments: [{ id: 'c1', authorId: 'u1', authorName: 'Սուրեն', text: 'Ստուգված է', createdAt: '2026-09-12T12:00:00.000Z' }],
     }],
     members: [{ id: 'u1', name: 'Սուրեն', role: 'owner' }],
     currentUserId: 'u1',
@@ -96,12 +118,13 @@ test('round-trips a Julo backup', () => {
   assert.equal(restored.tasks[0].projectId, 'p1');
   assert.equal(restored.tasks[0].executionType, 'review_report');
   assert.equal(restored.tasks[0].dueDate, '2026-09-20');
+  assert.equal(restored.tasks[0].comments[0].text, 'Ստուգված է');
   assert.equal(restored.members[0].name, 'Սուրեն');
 });
 
 test('accepts a direct legacy workspace JSON backup', () => {
   const restored = parseWorkspaceBackup(JSON.stringify({ projects: [], tasks: [], settings: {} }));
-  assert.equal(restored.version, 4);
+  assert.equal(restored.version, 5);
   assert.deepEqual(restored.projects, []);
   assert.deepEqual(restored.tasks, []);
   assert.equal(restored.members[0].role, 'owner');

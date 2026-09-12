@@ -1,25 +1,41 @@
-# Планер задач
+# Julo
 
-Удобное десктопное приложение для управления задачами, написанное с использованием Electron.
+Julo is a local-first desktop planner built with Electron. The current codebase includes task management, projects and sections, subtasks, Today and timeline views, recurring tasks, reminders, notes, attachments, time tracking, multiple local vaults, and backup/import/export.
 
-## 🚀 Установка и запуск (для новых ПК)
+## Development status
 
-Чтобы запустить проект на новом компьютере, выполните следующие простые шаги:
+Julo is currently being stabilized for a public beta.
 
-### 1. Установите Node.js
-* Зайдите на официальный сайт: [nodejs.org](https://nodejs.org/).
-* Скачайте версию с пометкой **LTS** (Рекомендовано для большинства пользователей).
-* Запустите установщик. Оставьте настройки по умолчанию (просто нажимайте «Next»), галочка «Add to PATH» добавится автоматически.
-* **Перезагрузите ПК**, чтобы система корректно распознала новую программу.
+- `main` — preserved baseline imported from the original Planer codebase.
+- `beta-dev` — active development branch for the Julo beta.
+- Cloud synchronization is intentionally disabled in the current beta baseline.
+- The sync layer remains provider-agnostic so a future cloud backend can be added without coupling Julo to Mail.ru/WebDAV.
 
-### 2. Установите зависимости
-* Скачайте или склонируйте этот проект.
-* Откройте папку проекта.
-* Откройте консоль (командную строку) прямо в этой папке.
-* Выполните команду для скачивания нужных библиотек:
-  ```bash
-  npm install
-  ```
+## Run locally
 
-### 3. Запуск
-* Когда библиотеки установятся, просто запустите файл **`run.bat`** кликом мыши (или введите в консоли `npm start`).
+Requirements: Node.js 22+ and npm.
+
+```bash
+npm ci
+npm start
+```
+
+## Validate source
+
+```bash
+npm run check
+```
+
+The same validation runs in GitHub Actions on pushes and pull requests.
+
+## Windows build
+
+```bash
+npm run build
+```
+
+The packaged application is produced under `dist/` with the Julo executable name. The internal package name has intentionally not been changed yet because data-path migration from existing Planer installations must be handled before that rename is safe.
+
+## Data safety
+
+Julo stores its working data locally. The existing storage layer uses atomic JSON writes and `.bak` recovery files. Before beta release we will add explicit schema/version migration checks and automated regression coverage for storage and vault operations.

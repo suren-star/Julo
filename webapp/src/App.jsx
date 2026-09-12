@@ -83,6 +83,7 @@ function App() {
         task.description,
         TASK_EXECUTION_TYPES[task.executionType] || '',
         ...(task.tags || []),
+        ...(task.comments || []).map((comment) => comment.text),
       ].join(' ').toLocaleLowerCase('hy-AM').includes(q);
     });
   }, [workspace.tasks, currentMember, visibleProjectIds, activeProject, executionTypeFilter, view, query]);
@@ -110,6 +111,31 @@ function App() {
     setWorkspace((s) => ({ ...s, tasks: s.tasks.filter((t) => t.id !== id) }));
   };
 
+  const addTaskComment = (taskId, text) => {
+    const cleanText = text.trim();
+    const task = workspace.tasks.find((item) => item.id === taskId);
+    if (!cleanText || !task || !canForMember(currentMember, 'tasks.comment', task.projectId)) return false;
+
+    const comment = {
+      id: uid('comment'),
+      authorId: currentMember?.id || '',
+      authorName: currentMember?.name || 'Օգտատեր',
+      text: cleanText,
+      createdAt: new Date().toISOString(),
+    };
+
+    setWorkspace((s) => ({
+      ...s,
+      tasks: s.tasks.map((item) => item.id === taskId
+        ? { ...item, comments: [...(item.comments || []), comment], updatedAt: new Date().toISOString() }
+        : item),
+    }));
+    setEditingTask((current) => current?.id === taskId
+      ? { ...current, comments: [...(current.comments || []), comment], updatedAt: new Date().toISOString() }
+      : current);
+    return true;
+  };
+
   const openNewTask = (status = 'todo') => {
     const projectId = activeProject === 'all' ? '' : activeProject;
     if (!canCreateTask(projectId)) {
@@ -126,6 +152,7 @@ function App() {
       executionType: '',
       dueDate: '',
       tags: [],
+      comments: [],
     });
     setShowTaskModal(true);
   };
@@ -155,8 +182,16 @@ function App() {
     if (existing && clean.projectId !== existing.projectId && !canForMember(currentMember, 'tasks.update', clean.projectId)) return;
 
     setWorkspace((s) => clean.id
-      ? { ...s, tasks: s.tasks.map((t) => t.id === clean.id ? { ...t, ...clean, updatedAt: new Date().toISOString() } : t) }
-      : { ...s, tasks: [...s.tasks, { ...clean, id: uid('task'), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] });
+      ? {
+        ...s,
+        tasks: s.tasks.map((t) => t.id === clean.id
+          ? { ...t, ...clean, comments: t.comments || [], updatedAt: new Date().toISOString() }
+          : t),
+      }
+      : {
+        ...s,
+        tasks: [...s.tasks, { ...clean, comments: [], id: uid('task'), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }],
+      });
     setShowTaskModal(false);
   };
 
@@ -401,7 +436,7 @@ function App() {
                 <span className={`check ${task.status === 'done' ? 'checked' : ''}`} onClick={(e) => { e.stopPropagation(); patchTask(task.id, { status: task.status === 'done' ? 'todo' : 'done' }); }}>{task.status === 'done' ? '✓' : ''}</span>
                 <span className="list-main">
                   <strong>{task.title}</strong>
-                  <small>{projectName(task.projectId)} · {TASK_EXECUTION_TYPES[task.executionType] || 'Կատարման տեսակ չի նշված'} · {task.dueDate || 'Ժամկետ չի նշված'}</small>
+                  <small>{projectName(task.projectId)} · {TASK_EXECUTION_TYPES[task.executionType] || 'Կատարման տեսակ չի նշված'} · {task.dueDate || 'Ժամկետ չի նշված'}{task.comments?.length ? ` · 💬 ${task.comments.length}` : ''}</small>
                 </span>
                 <span className={`priority ${task.priority}`}>{PRIORITIES[task.priority]?.icon}</span>
               </button>
@@ -415,6 +450,8 @@ function App() {
         projects={visibleProjects}
         readOnly={editingTask?.id ? !canForMember(currentMember, 'tasks.update', editingTask.projectId) : false}
         canDelete={editingTask?.id ? canForMember(currentMember, 'tasks.delete', editingTask.projectId) : false}
+        canComment={editingTask?.id ? canForMember(currentMember, 'tasks.comment', editingTask.projectId) : false}
+        onAddComment={addTaskComment}
         onClose={() => setShowTaskModal(false)}
         onSave={saveTask}
         onDelete={(id) => { deleteTask(id); setShowTaskModal(false); }}
@@ -433,21 +470,29 @@ function TaskCard({ task, project, onOpen, onDragStart, draggable }) {
     {task.description && <p>{task.description}</p>}
     {(task.tags || []).length > 0 && <div className="tags">{task.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div>}
     <div className="card-meta">
-      <span>▣ {project}</span>
+      <span>▣ {project}{task.comments?.length ? ` · 💬 ${task.comments.length}` : ''}</span>
       <span className={!task.dueDate || (task.dueDate < todayKey() && task.status !== 'done') ? 'overdue' : ''}>◷ {task.dueDate || 'Ժամկետ չի նշված'}</span>
     </div>
   </article>;
 }
 
-function TaskModal({ task, projects, readOnly, canDelete, onClose, onSave, onDelete }) {
+function TaskModal({ task, projects, readOnly, canDelete, canComment, onAddComment, onClose, onSave, onDelete }) {
   const [draft, setDraft] = useState({
     ...task,
     executionType: task.executionType || '',
     dueDate: task.dueDate || '',
     tags: task.tags || [],
   });
+  const [commentText, setCommentText] = useState('');
   const set = (key, value) => setDraft((d) => ({ ...d, [key]: value }));
   const canSave = Boolean(draft.title.trim() && TASK_EXECUTION_TYPES[draft.executionType] && draft.dueDate);
+  const comments = task.comments || [];
+
+  const submitComment = () => {
+    const text = commentText.trim();
+    if (!text || !task.id || !canComment) return;
+    if (onAddComment(task.id, text)) setCommentText('');
+  };
 
   return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal" onMouseDown={(e) => e.stopPropagation()}>
     <div className="modal-head"><div><p className="eyebrow">ԱՌԱՋԱԴՐԱՆՔ</p><h2>{draft.id ? readOnly ? 'Դիտել առաջադրանքը' : 'Խմբագրել առաջադրանքը' : 'Նոր առաջադրանք'}</h2></div><button className="icon-button" onClick={onClose}>×</button></div>
@@ -462,6 +507,23 @@ function TaskModal({ task, projects, readOnly, canDelete, onClose, onSave, onDel
     </div>
     {!readOnly && <p className="required-note">* Պարտադիր լրացվող դաշտեր</p>}
     <label className="field"><span>Պիտակներ</span><input disabled={readOnly} value={draft.tags.join(', ')} onChange={(e) => set('tags', e.target.value.split(',').map((x) => x.trim()))} placeholder="օրինակ՝ դիզայն, հաճախորդ" /></label>
+
+    <section className="comments-section">
+      <div className="comments-head"><strong>Մեկնաբանություններ</strong><span>{comments.length}</span></div>
+      {comments.length > 0 ? <div className="comment-list">
+        {comments.map((comment) => <article className="comment" key={comment.id}>
+          <div className="comment-meta"><strong>{comment.authorName || 'Օգտատեր'}</strong><time>{new Date(comment.createdAt).toLocaleString('hy-AM')}</time></div>
+          <p>{comment.text}</p>
+        </article>)}
+      </div> : <p className="comments-empty">Այս առաջադրանքի համար դեռ մեկնաբանություններ չկան։</p>}
+      {task.id && canComment && <div className="comment-compose">
+        <textarea rows="3" value={commentText} onChange={(e) => setCommentText(e.target.value)} placeholder="Գրել մեկնաբանություն…" />
+        <button className="primary" disabled={!commentText.trim()} onClick={submitComment}>Ուղարկել</button>
+      </div>}
+      {!task.id && <p className="comments-hint">Մեկնաբանություն ավելացնելու համար նախ պահպանեք առաջադրանքը։</p>}
+      {task.id && !canComment && <p className="comments-hint">Ձեր դերը թույլ չի տալիս մեկնաբանություն ավելացնել։</p>}
+    </section>
+
     <div className="modal-actions">{draft.id && canDelete ? <button className="danger" onClick={() => onDelete(draft.id)}>Ջնջել</button> : <span />}<div><button className="ghost" onClick={onClose}>{readOnly ? 'Փակել' : 'Չեղարկել'}</button>{!readOnly && <button className="primary" disabled={!canSave} onClick={() => onSave(draft)}>Պահպանել</button>}</div></div>
   </div></div>;
 }

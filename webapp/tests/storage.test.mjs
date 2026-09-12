@@ -13,16 +13,48 @@ test('normalizes legacy workspace data safely', () => {
     settings: { theme: 'dark' },
   });
 
-  assert.equal(migrated.version, 3);
+  assert.equal(migrated.version, 4);
   assert.equal(migrated.settings.theme, 'dark');
   assert.equal(migrated.settings.language, 'hy');
   assert.deepEqual(migrated.tasks[0].tags, ['a']);
+  assert.equal(migrated.tasks[0].executionType, '');
+  assert.equal(migrated.tasks[0].dueDate, '');
   assert.equal(migrated.tasks[1].projectId, '');
   assert.equal(migrated.tasks[1].status, 'todo');
   assert.equal(migrated.tasks[1].priority, 'normal');
   assert.equal(migrated.members.length, 1);
   assert.equal(migrated.members[0].role, 'owner');
   assert.equal(migrated.currentUserId, migrated.members[0].id);
+});
+
+test('preserves valid task execution type and deadline', () => {
+  const migrated = normalizeWorkspace({
+    projects: [{ id: 'p1', name: 'Project' }],
+    tasks: [{
+      id: 't1',
+      title: 'Task',
+      projectId: 'p1',
+      status: 'todo',
+      priority: 'normal',
+      executionType: 'prepare_documents',
+      dueDate: '2026-09-30',
+    }],
+    settings: {},
+  });
+
+  assert.equal(migrated.tasks[0].executionType, 'prepare_documents');
+  assert.equal(migrated.tasks[0].dueDate, '2026-09-30');
+});
+
+test('drops unknown task execution types without inventing a category', () => {
+  const migrated = normalizeWorkspace({
+    projects: [],
+    tasks: [{ id: 't1', title: 'Task', executionType: 'unknown', dueDate: '2026-09-30' }],
+    settings: {},
+  });
+
+  assert.equal(migrated.tasks[0].executionType, '');
+  assert.equal(migrated.tasks[0].dueDate, '2026-09-30');
 });
 
 test('preserves valid members and guest project access', () => {
@@ -44,7 +76,15 @@ test('preserves valid members and guest project access', () => {
 test('round-trips a Julo backup', () => {
   const source = normalizeWorkspace({
     projects: [{ id: 'p1', name: 'Աշխատանք' }],
-    tasks: [{ id: 't1', title: 'Փորձ', projectId: 'p1', status: 'todo', priority: 'normal' }],
+    tasks: [{
+      id: 't1',
+      title: 'Փորձ',
+      projectId: 'p1',
+      status: 'todo',
+      priority: 'normal',
+      executionType: 'review_report',
+      dueDate: '2026-09-20',
+    }],
     members: [{ id: 'u1', name: 'Սուրեն', role: 'owner' }],
     currentUserId: 'u1',
     settings: { theme: 'light' },
@@ -54,12 +94,14 @@ test('round-trips a Julo backup', () => {
   assert.equal(restored.projects[0].name, 'Աշխատանք');
   assert.equal(restored.tasks[0].title, 'Փորձ');
   assert.equal(restored.tasks[0].projectId, 'p1');
+  assert.equal(restored.tasks[0].executionType, 'review_report');
+  assert.equal(restored.tasks[0].dueDate, '2026-09-20');
   assert.equal(restored.members[0].name, 'Սուրեն');
 });
 
 test('accepts a direct legacy workspace JSON backup', () => {
   const restored = parseWorkspaceBackup(JSON.stringify({ projects: [], tasks: [], settings: {} }));
-  assert.equal(restored.version, 3);
+  assert.equal(restored.version, 4);
   assert.deepEqual(restored.projects, []);
   assert.deepEqual(restored.tasks, []);
   assert.equal(restored.members[0].role, 'owner');

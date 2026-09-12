@@ -1,0 +1,47 @@
+name: Stabilize Julo beta v2
+
+on:
+  push:
+    branches: [beta-dev]
+    paths:
+      - '.github/workflows/stabilize-beta-v2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  stabilize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Julo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply beta v2 stabilization
+        run: python scripts/stabilize-beta-v2.py
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate source
+        run: npm run check
+
+      - name: Run regression tests
+        run: npm test
+
+      - name: Commit stabilized beta
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f scripts/stabilize-beta-v2.py
+          rm -f .github/workflows/stabilize-beta-v2.yml
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "feat: stabilize Julo profile and data migrations"
+          git push origin HEAD:beta-dev

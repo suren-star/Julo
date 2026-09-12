@@ -1,0 +1,228 @@
+name: Localize Julo Desktop to Armenian
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/localize-desktop-hy.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  localize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install translation helpers
+        run: pip install deep-translator beautifulsoup4
+
+      - name: Translate user-facing desktop strings
+        run: |
+          cat > /tmp/localize.py <<'PY'
+          from pathlib import Path
+          from bs4 import BeautifulSoup, Comment
+          from deep_translator import GoogleTranslator
+          import re, time, json
+
+          CYR = re.compile(r'[А-Яа-яЁё]')
+          translator = GoogleTranslator(source='ru', target='hy')
+          cache = {}
+          stats = {'translated': 0, 'html': 0, 'js': 0}
+
+          PROTECT = re.compile(r'(https?://[^\s<>]+|www\.[^\s<>]+|[A-Za-z]:\\[^\s]+|\$\{[^{}]*\}|\\[nrtbfv0]|#[0-9a-fA-F]{3,8}|\b(?:Ctrl|Alt|Shift|Enter|Esc|Tab|JSON|HTML|URL|WebDAV|Julo|Planer|Electron|Windows|Mail\.ru|AppData|localStorage|userData)\b)', re.I)
+
+          def translate_text(value):
+              if not value or not CYR.search(value):
+                  return value
+              leading = value[:len(value)-len(value.lstrip())]
+              trailing = value[len(value.rstrip()):]
+              core = value.strip()
+              if not core or not CYR.search(core):
+                  return value
+              if core in cache:
+                  return leading + cache[core] + trailing
+              tokens = []
+              def protect(m):
+                  tokens.append(m.group(0))
+                  return f' ZXQ{len(tokens)-1}QXZ '
+              safe = PROTECT.sub(protect, core)
+              last = None
+              for attempt in range(4):
+                  try:
+                      last = translator.translate(safe)
+                      if last:
+                          break
+                  except Exception:
+                      time.sleep(1.2 * (attempt + 1))
+              if not last:
+                  raise RuntimeError(f'Could not translate: {core[:120]}')
+              out = last
+              for i, token in enumerate(tokens):
+                  out = re.sub(rf'\s*ZXQ{i}QXZ\s*', token, out, flags=re.I)
+              cache[core] = out
+              stats['translated'] += 1
+              time.sleep(0.03)
+              return leading + out + trailing
+
+          def translate_markup(raw):
+              parts = re.split(r'(<[^>]+>|\$\{[^{}]*\})', raw)
+              out=[]
+              for part in parts:
+                  if not CYR.search(part):
+                      out.append(part); continue
+                  if part.startswith('<') and part.endswith('>'):
+                      def attr_repl(m):
+                          quote=m.group(2); val=m.group(3)
+                          return f'{m.group(1)}={quote}{translate_text(val)}{quote}'
+                      part=re.sub(r'\b(title|placeholder|aria-label)(\s*)=(\s*)', lambda m:m.group(0), part)
+                      for attr in ('title','placeholder','aria-label'):
+                          part=re.sub(rf'({attr})=(\"|\')(.*?)(\2)', lambda m:f'{m.group(1)}={m.group(2)}{translate_text(m.group(3))}{m.group(4)}', part, flags=re.I)
+                      out.append(part)
+                  elif part.startswith('${'):
+                      out.append(part)
+                  else:
+                      out.append(translate_text(part))
+              return ''.join(out)
+
+          html_path = Path('desktop/src/index.html')
+          soup = BeautifulSoup(html_path.read_text(encoding='utf-8'), 'html.parser')
+          if soup.html:
+              soup.html['lang'] = 'hy'
+          for node in list(soup.find_all(string=True)):
+              if isinstance(node, Comment):
+                  if CYR.search(str(node)):
+                      node.replace_with(Comment(translate_text(str(node))))
+                  continue
+              if node.parent and node.parent.name in {'script','style'}:
+                  continue
+              if CYR.search(str(node)):
+                  node.replace_with(translate_text(str(node)))
+                  stats['html'] += 1
+          for tag in soup.find_all(True):
+              for attr in ('title','placeholder','aria-label','data-tooltip'):
+                  val=tag.attrs.get(attr)
+                  if isinstance(val,str) and CYR.search(val):
+                      tag.attrs[attr]=translate_text(val); stats['html'] += 1
+          html_path.write_text(str(soup), encoding='utf-8')
+
+          def scan_strings(text):
+              spans=[]; i=0; n=len(text)
+              while i<n:
+                  if text.startswith('//',i):
+                      j=text.find('\n',i+2); i=n if j<0 else j+1; continue
+                  if text.startswith('/*',i):
+                      j=text.find('*/',i+2); i=n if j<0 else j+2; continue
+                  ch=text[i]
+                  if ch not in ('\"',"'",'`'):
+                      i+=1; continue
+                  quote=ch; start=i; i+=1; escaped=False; template_depth=0
+                  while i<n:
+                      c=text[i]
+                      if escaped:
+                          escaped=False; i+=1; continue
+                      if c=='\\':
+                          escaped=True; i+=1; continue
+                      if c==quote:
+                          end=i
+                          spans.append((start,end+1,quote,text[start+1:end]))
+                          i=end+1; break
+                      i+=1
+                  else:
+                      break
+              return spans
+
+          def escape_for_quote(value, quote):
+              value=value.replace('\\','\\\\')
+              if quote=='\"': value=value.replace('\"','\\\"')
+              elif quote=="'": value=value.replace("'","\\'")
+              else: value=value.replace('`','\\`')
+              # restored protected escape sequences were doubled above; normalize common JS escapes
+              value=re.sub(r'\\\\([nrtbfv0])', r'\\\1', value)
+              return value
+
+          js_files=[
+              Path('desktop/main.js'), Path('desktop/preload.js'),
+              Path('desktop/src/js/app.js'), Path('desktop/src/js/storage.js'),
+              Path('desktop/src/js/sync.js'), Path('desktop/src/js/timer.js'),
+          ]
+          for path in js_files:
+              text=path.read_text(encoding='utf-8')
+              replacements=[]
+              for start,end,quote,raw in scan_strings(text):
+                  if not CYR.search(raw): continue
+                  translated=translate_markup(raw) if ('<' in raw or '${' in raw) else translate_text(raw)
+                  replacements.append((start,end,quote + escape_for_quote(translated,quote) + quote))
+                  stats['js'] += 1
+              for start,end,value in reversed(replacements):
+                  text=text[:start]+value+text[end:]
+              path.write_text(text,encoding='utf-8')
+
+          # Armenian metadata and report.
+          pkg_path=Path('desktop/package.json')
+          pkg=json.loads(pkg_path.read_text(encoding='utf-8'))
+          pkg['description']='Julo-ի համակարգչային տարբերակ՝ առաջադրանքների, նախագծերի և ժամանակի կառավարման համար'
+          pkg_path.write_text(json.dumps(pkg,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+
+          # Validate that user-facing HTML and JS string literals no longer contain Cyrillic.
+          leftovers=[]
+          check_soup=BeautifulSoup(html_path.read_text(encoding='utf-8'),'html.parser')
+          for node in check_soup.find_all(string=True):
+              if node.parent and node.parent.name in {'script','style'}: continue
+              if CYR.search(str(node)): leftovers.append(('html-text',str(node).strip()[:120]))
+          for tag in check_soup.find_all(True):
+              for attr in ('title','placeholder','aria-label','data-tooltip'):
+                  val=tag.attrs.get(attr)
+                  if isinstance(val,str) and CYR.search(val): leftovers.append((f'html-{attr}',val[:120]))
+          for path in js_files:
+              text=path.read_text(encoding='utf-8')
+              for _,_,_,raw in scan_strings(text):
+                  if CYR.search(raw): leftovers.append((str(path),raw[:120]))
+          if leftovers:
+              print('Remaining Cyrillic user-facing strings:')
+              for item in leftovers[:50]: print(item)
+              raise SystemExit(f'{len(leftovers)} user-facing strings remain untranslated')
+
+          Path('desktop/LOCALIZATION.md').write_text(
+              '# Հայերեն տեղայնացում\n\n'
+              'Julo Desktop-ի user-facing հիմնական լեզուն հայերենն է։ '\
+              'Legacy `Planer`/`planer` տեխնիկական անունները պահպանվում են միայն տվյալների migration-ի համատեղելիության համար։\n\n'
+              f"Թարգմանված եզակի հատվածներ՝ {stats['translated']}։ HTML փոփոխություններ՝ {stats['html']}։ JS string-եր՝ {stats['js']}։\n",
+              encoding='utf-8'
+          )
+          print(stats)
+          PY
+          python /tmp/localize.py
+
+      - name: Validate localized desktop
+        working-directory: desktop
+        run: |
+          npm ci
+          npm run check
+          npm test
+
+      - name: Verify web app and repository docs contain no Russian UI copy
+        run: |
+          if grep -RInE '[А-Яа-яЁё]' webapp README.md webapp/README.md desktop/README.md desktop/LOCALIZATION.md; then
+            echo 'Unexpected Cyrillic text found outside legacy desktop internals.'
+            exit 1
+          fi
+          cd webapp
+          npm ci
+          npm run build
+
+      - name: Commit Armenian localization
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add desktop README.md webapp
+          git commit -m "feat: localize Julo user interface in Armenian"
+          git push origin HEAD:main

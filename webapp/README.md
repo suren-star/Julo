@@ -6,13 +6,19 @@ Julo Web-ը նախագծերի և առաջադրանքների կառավարմ�
 
 - Kanban տախտակ՝ «Անելիք / Ընթացքում / Ավարտված» կարգավիճակներով
 - drag-and-drop կարգավիճակի փոփոխություն
-- նախագծեր և նախագծով ֆիլտրում
+- նախագծերի ստեղծում, վերանվանում, ջնջում և նախագծով ֆիլտրում
 - «Այսօր», «Բոլոր առաջադրանքները» և «Ավարտված» դիտումներ
 - որոնում
 - առաջնահերթություն, վերջնաժամկետ, պիտակներ և նկարագրություն
 - light/dark թեմա
-- local-first storage provider, որը հետագայում հնարավոր է փոխարինել API/cloud provider-ով
+- local-first storage provider՝ versioned workspace schema-ով
+- JSON backup export/import
+- regression tests՝ workspace migration/import-ի համար
 - դատարկ workspace՝ առանց demo/legacy տվյալների
+
+## Live տարբերակ
+
+GitHub Pages՝ https://suren-star.github.io/Julo/
 
 ## Գործարկում
 
@@ -21,8 +27,11 @@ npm install
 npm run dev
 ```
 
-## Production build
+## Ստուգում
 
 ```bash
+npm test
 npm run build
 ```
+
+GitHub Pages deployment-ը ավտոմատ աշխատում է `main` ճյուղի `webapp/` փոփոխություններից հետո։

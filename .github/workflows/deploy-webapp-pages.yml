@@ -1,6 +1,11 @@
 name: Deploy Julo Webapp to GitHub Pages
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'webapp/**'
+      - '.github/workflows/deploy-webapp-pages.yml'
   workflow_dispatch:
 
 permissions:

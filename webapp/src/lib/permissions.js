@@ -13,7 +13,7 @@ export const WORKSPACE_ROLES = {
   },
   viewer: {
     label: 'Դիտորդ',
-    description: 'Կարող է դիտել աշխատանքը և արտահանել իր հասանելի տվյալները, բայց չի խմբագրում։',
+    description: 'Կարող է դիտել աշխատանքը, մեկնաբանել առաջադրանքները և արտահանել իր հասանելի տվյալները, բայց չի խմբագրում առաջադրանքի դաշտերը։',
   },
   guest: {
     label: 'Հյուր',
@@ -32,15 +32,15 @@ const ROLE_PERMISSIONS = {
   admin: [
     'members.manage',
     'projects.create', 'projects.update', 'projects.delete',
-    'tasks.create', 'tasks.update', 'tasks.delete',
+    'tasks.create', 'tasks.update', 'tasks.delete', 'tasks.comment',
     'workspace.settings', 'workspace.import', 'workspace.export',
   ],
   member: [
     'projects.create', 'projects.update',
-    'tasks.create', 'tasks.update', 'tasks.delete',
+    'tasks.create', 'tasks.update', 'tasks.delete', 'tasks.comment',
     'workspace.export',
   ],
-  viewer: ['workspace.export'],
+  viewer: ['tasks.comment', 'workspace.export'],
   guest: [],
 };
 

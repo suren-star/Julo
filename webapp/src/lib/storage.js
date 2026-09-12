@@ -1,7 +1,7 @@
 import { isTaskExecutionType } from './task-types.js';
 
 const STORAGE_KEY = 'julo_web_workspace_v1';
-const WORKSPACE_VERSION = 4;
+const WORKSPACE_VERSION = 5;
 const VALID_STATUSES = new Set(['todo', 'doing', 'done']);
 const VALID_PRIORITIES = new Set(['low', 'normal', 'high', 'urgent']);
 const VALID_WORKSPACE_ROLES = new Set(['owner', 'admin', 'member', 'viewer', 'guest']);
@@ -37,6 +37,14 @@ const normalizeProject = (project, index) => ({
   createdAt: asText(project?.createdAt, now()),
 });
 
+const normalizeComment = (comment, index) => ({
+  id: asText(comment?.id, `comment_${index + 1}`),
+  authorId: asText(comment?.authorId),
+  authorName: asText(comment?.authorName, 'Օգտատեր').trim() || 'Օգտատեր',
+  text: asText(comment?.text).trim(),
+  createdAt: asText(comment?.createdAt, now()),
+});
+
 const normalizeTask = (task, index, projectIds) => {
   const projectId = asText(task?.projectId);
   return {
@@ -49,6 +57,9 @@ const normalizeTask = (task, index, projectIds) => {
     executionType: isTaskExecutionType(task?.executionType) ? task.executionType : '',
     dueDate: asText(task?.dueDate),
     tags: Array.isArray(task?.tags) ? task.tags.filter((tag) => typeof tag === 'string').map((tag) => tag.trim()).filter(Boolean) : [],
+    comments: Array.isArray(task?.comments)
+      ? task.comments.map(normalizeComment).filter((comment) => comment.text)
+      : [],
     createdAt: asText(task?.createdAt, now()),
     updatedAt: asText(task?.updatedAt, asText(task?.createdAt, now())),
   };

@@ -20,8 +20,8 @@
   "author": "Julo contributors",
   "license": "ISC",
   "devDependencies": {
-    "electron": "^40.0.0",
-    "electron-packager": "^17.1.2"
+    "@electron/packager": "^20.3.0",
+    "electron": "^40.0.0"
   },
   "dependencies": {
     "dompurify": "^3.4.15"

@@ -21,7 +21,7 @@
   "license": "ISC",
   "devDependencies": {
     "@electron/packager": "^20.3.0",
-    "electron": "^40.0.0"
+    "electron": "^41.10.7"
   },
   "dependencies": {
     "dompurify": "^3.4.15"

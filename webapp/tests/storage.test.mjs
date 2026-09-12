@@ -13,7 +13,7 @@ test('normalizes legacy workspace data safely', () => {
     settings: { theme: 'dark' },
   });
 
-  assert.equal(migrated.version, 5);
+  assert.equal(migrated.version, 6);
   assert.equal(migrated.settings.theme, 'dark');
   assert.equal(migrated.settings.language, 'hy');
   assert.deepEqual(migrated.tasks[0].tags, ['a']);
@@ -124,7 +124,7 @@ test('round-trips a Julo backup with comments', () => {
 
 test('accepts a direct legacy workspace JSON backup', () => {
   const restored = parseWorkspaceBackup(JSON.stringify({ projects: [], tasks: [], settings: {} }));
-  assert.equal(restored.version, 5);
+  assert.equal(restored.version, 6);
   assert.deepEqual(restored.projects, []);
   assert.deepEqual(restored.tasks, []);
   assert.equal(restored.members[0].role, 'owner');
@@ -133,4 +133,22 @@ test('accepts a direct legacy workspace JSON backup', () => {
 test('rejects unrelated JSON files', () => {
   assert.throws(() => parseWorkspaceBackup('{"hello":"world"}'), /Julo/);
   assert.throws(() => parseWorkspaceBackup('not-json'), /JSON/);
+});
+
+
+test('normalizes timers and keeps at most one running timer', () => {
+  const restored = normalizeWorkspace({
+    projects: [],
+    tasks: [
+      { id: 't1', title: 'One', status: 'doing', timer: { state: 'running', elapsedMs: 1000, startedAt: '2026-09-12T10:00:00.000Z' } },
+      { id: 't2', title: 'Two', status: 'doing', timer: { state: 'running', elapsedMs: 2000, startedAt: '2026-09-12T10:00:00.000Z' } },
+      { id: 't3', title: 'Done', status: 'done', timer: { state: 'paused', elapsedMs: 3000 } },
+    ],
+    settings: {},
+  });
+  assert.equal(restored.version, 6);
+  assert.equal(restored.tasks[0].timer.state, 'running');
+  assert.equal(restored.tasks[1].timer.state, 'paused');
+  assert.equal(restored.tasks[2].timer.state, 'stopped');
+  assert.equal(restored.tasks[2].timer.elapsedMs, 3000);
 });

@@ -1,7 +1,8 @@
 import { isTaskExecutionType } from './task-types.js';
+import { TIMER_STATES, normalizeTaskTimer, pauseTaskTimer, stopTaskTimer } from './task-timer.js';
 
 const STORAGE_KEY = 'julo_web_workspace_v1';
-const WORKSPACE_VERSION = 5;
+const WORKSPACE_VERSION = 6;
 const VALID_STATUSES = new Set(['todo', 'doing', 'done']);
 const VALID_PRIORITIES = new Set(['low', 'normal', 'high', 'urgent']);
 const VALID_WORKSPACE_ROLES = new Set(['owner', 'admin', 'member', 'viewer', 'guest']);
@@ -63,11 +64,16 @@ const normalizeComment = (comment, index) => ({
 
 const normalizeTask = (task, index, projectIds) => {
   const projectId = asText(task?.projectId);
+  const status = VALID_STATUSES.has(task?.status) ? task.status : 'todo';
+  let timer = normalizeTaskTimer(task?.timer);
+  if (status === 'done' && timer.state !== TIMER_STATES.STOPPED) {
+    timer = stopTaskTimer(timer, Date.now(), 'completed');
+  }
   return {
     id: asText(task?.id, `task_${index + 1}`),
     title: asText(task?.title).trim(),
     description: asText(task?.description),
-    status: VALID_STATUSES.has(task?.status) ? task.status : 'todo',
+    status,
     projectId: projectIds.has(projectId) ? projectId : '',
     priority: VALID_PRIORITIES.has(task?.priority) ? task.priority : 'normal',
     executionType: isTaskExecutionType(task?.executionType) ? task.executionType : '',
@@ -76,6 +82,7 @@ const normalizeTask = (task, index, projectIds) => {
     comments: Array.isArray(task?.comments)
       ? task.comments.map(normalizeComment).filter((comment) => comment.text)
       : [],
+    timer,
     createdAt: asText(task?.createdAt, now()),
     updatedAt: asText(task?.updatedAt, asText(task?.createdAt, now())),
   };
@@ -103,9 +110,18 @@ export const normalizeWorkspace = (source) => {
     ? source.projects.map(normalizeProject)
     : [];
   const projectIds = new Set(projects.map((project) => project.id));
-  const tasks = Array.isArray(source.tasks)
+  let runningTimerSeen = false;
+  const tasks = (Array.isArray(source.tasks)
     ? source.tasks.map((task, index) => normalizeTask(task, index, projectIds)).filter((task) => task.title)
-    : [];
+    : [])
+    .map((task) => {
+      if (task.timer.state !== TIMER_STATES.RUNNING) return task;
+      if (!runningTimerSeen) {
+        runningTimerSeen = true;
+        return task;
+      }
+      return { ...task, timer: pauseTaskTimer(task.timer) };
+    });
   const theme = source.settings?.theme === 'dark' ? 'dark' : 'light';
 
   let members = Array.isArray(source.members)

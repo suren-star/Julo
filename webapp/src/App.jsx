@@ -11,9 +11,20 @@ import {
   WORKSPACE_ROLES,
   canForMember,
   canManageMemberRole,
+  canReopenCompletedTask,
   visibleProjectsForMember,
 } from './lib/permissions.js';
 import { TASK_EXECUTION_TYPES } from './lib/task-types.js';
+import {
+  TIMER_STATES,
+  emptyTaskTimer,
+  formatElapsedTime,
+  getTimerElapsedMs,
+  pauseTaskTimer,
+  startExclusiveTimer,
+  stopTaskTimer,
+  transitionTaskStatus,
+} from './lib/task-timer.js';
 
 const STATUSES = [
   { id: 'todo', title: 'Առաջադրանք', icon: '○' },
@@ -95,14 +106,63 @@ function App() {
   const canImport = canForMember(currentMember, 'workspace.import');
   const canCreateProject = canForMember(currentMember, 'projects.create');
   const canCreateTask = (projectId = '') => canForMember(currentMember, 'tasks.create', projectId);
+  const canReopenCompleted = canReopenCompletedTask(currentMember);
+  const canUseTaskTimer = (projectId = '') => canForMember(currentMember, 'tasks.timer', projectId);
+
+  const changeTaskStatus = (id, nextStatus) => {
+    const task = workspace.tasks.find((item) => item.id === id);
+    if (!task || !canForMember(currentMember, 'tasks.update', task.projectId)) return false;
+    const nowMs = Date.now();
+    const transition = transitionTaskStatus(task, nextStatus, { canReopenCompleted, nowMs });
+    if (transition.blocked) {
+      window.alert('Ավարտված առաջադրանքը «Ընթացքում» կարող են վերադարձնել միայն Սեփականատերը կամ Ադմինիստրատորը։');
+      return false;
+    }
+    if (!transition.changed) return true;
+    const updatedAt = new Date(nowMs).toISOString();
+    setWorkspace((s) => ({ ...s, tasks: s.tasks.map((item) => item.id === id ? { ...transition.task, updatedAt } : item) }));
+    return true;
+  };
 
   const patchTask = (id, patch) => {
     const task = workspace.tasks.find((item) => item.id === id);
     if (!task || !canForMember(currentMember, 'tasks.update', task.projectId)) return;
-    setWorkspace((s) => ({
-      ...s,
-      tasks: s.tasks.map((t) => t.id === id ? { ...t, ...patch, updatedAt: new Date().toISOString() } : t),
-    }));
+    if (patch.status && patch.status !== task.status) {
+      changeTaskStatus(id, patch.status);
+      return;
+    }
+    setWorkspace((s) => ({ ...s, tasks: s.tasks.map((t) => t.id === id ? { ...t, ...patch, updatedAt: new Date().toISOString() } : t) }));
+  };
+
+  const startTimerForTask = (id) => {
+    const task = workspace.tasks.find((item) => item.id === id);
+    if (!task || task.status === 'done' || !canUseTaskTimer(task.projectId)) return;
+    if (task.timer?.state === TIMER_STATES.STOPPED) {
+      window.alert('Այս timer-ը Stop է արվել և այլևս չի կարող վերագործարկվել։');
+      return;
+    }
+    const nowMs = Date.now();
+    const updatedAt = new Date(nowMs).toISOString();
+    setWorkspace((s) => {
+      const nextTasks = startExclusiveTimer(s.tasks, id, nowMs);
+      return { ...s, tasks: nextTasks.map((item, index) => item === s.tasks[index] ? item : { ...item, updatedAt }) };
+    });
+  };
+
+  const pauseTimerForTask = (id) => {
+    const task = workspace.tasks.find((item) => item.id === id);
+    if (!task || !canUseTaskTimer(task.projectId) || task.timer?.state !== TIMER_STATES.RUNNING) return;
+    const nowMs = Date.now();
+    setWorkspace((s) => ({ ...s, tasks: s.tasks.map((item) => item.id === id ? { ...item, timer: pauseTaskTimer(item.timer, nowMs), updatedAt: new Date(nowMs).toISOString() } : item) }));
+  };
+
+  const stopTimerForTask = (id) => {
+    const task = workspace.tasks.find((item) => item.id === id);
+    if (!task || !canUseTaskTimer(task.projectId)) return;
+    if (![TIMER_STATES.RUNNING, TIMER_STATES.PAUSED].includes(task.timer?.state)) return;
+    if (!window.confirm('Վստա՞հ եք, որ սեղմում եք Stop։ Հաստատելուց հետո timer-ը այլևս չեք կարող վերագործարկել։')) return;
+    const nowMs = Date.now();
+    setWorkspace((s) => ({ ...s, tasks: s.tasks.map((item) => item.id === id ? { ...item, timer: stopTaskTimer(item.timer, nowMs, 'manual'), updatedAt: new Date(nowMs).toISOString() } : item) }));
   };
 
   const deleteTask = (id) => {
@@ -153,45 +213,39 @@ function App() {
       dueDate: '',
       tags: [],
       comments: [],
+      timer: emptyTaskTimer(),
     });
     setShowTaskModal(true);
   };
 
   const saveTask = (task) => {
-    const clean = {
-      ...task,
-      title: task.title.trim(),
-      tags: Array.isArray(task.tags) ? task.tags.filter(Boolean) : [],
-    };
-    if (!clean.title) {
-      window.alert('Լրացրեք առաջադրանքի վերնագիրը։');
-      return;
-    }
-    if (!TASK_EXECUTION_TYPES[clean.executionType]) {
-      window.alert('Ընտրեք առաջադրանքի կատարման տեսակը։');
-      return;
-    }
-    if (!clean.dueDate) {
-      window.alert('Նշեք առաջադրանքի կատարման ժամկետը։');
-      return;
-    }
-
+    const clean = { ...task, title: task.title.trim(), tags: Array.isArray(task.tags) ? task.tags.filter(Boolean) : [] };
+    if (!clean.title) { window.alert('Լրացրեք առաջադրանքի վերնագիրը։'); return; }
+    if (!TASK_EXECUTION_TYPES[clean.executionType]) { window.alert('Ընտրեք առաջադրանքի կատարման տեսակը։'); return; }
+    if (!clean.dueDate) { window.alert('Նշեք առաջադրանքի կատարման ժամկետը։'); return; }
     const existing = clean.id ? workspace.tasks.find((item) => item.id === clean.id) : null;
     if (existing && !canForMember(currentMember, 'tasks.update', existing.projectId)) return;
     if (!existing && !canCreateTask(clean.projectId)) return;
     if (existing && clean.projectId !== existing.projectId && !canForMember(currentMember, 'tasks.update', clean.projectId)) return;
-
-    setWorkspace((s) => clean.id
-      ? {
-        ...s,
-        tasks: s.tasks.map((t) => t.id === clean.id
-          ? { ...t, ...clean, comments: t.comments || [], updatedAt: new Date().toISOString() }
-          : t),
-      }
-      : {
-        ...s,
-        tasks: [...s.tasks, { ...clean, comments: [], id: uid('task'), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }],
-      });
+    if (existing && existing.status === 'done' && clean.status !== 'done' && !(canReopenCompleted && clean.status === 'doing')) {
+      window.alert('Ավարտված առաջադրանքը «Ընթացքում» կարող են վերադարձնել միայն Սեփականատերը կամ Ադմինիստրատորը։');
+      return;
+    }
+    const nowMs = Date.now();
+    const updatedAt = new Date(nowMs).toISOString();
+    const { comments: ignoredComments, timer: ignoredTimer, ...editable } = clean;
+    setWorkspace((s) => clean.id ? {
+      ...s,
+      tasks: s.tasks.map((current) => {
+        if (current.id !== clean.id) return current;
+        const transition = transitionTaskStatus(current, clean.status, { canReopenCompleted, nowMs });
+        if (transition.blocked) return current;
+        return { ...transition.task, ...editable, status: transition.task.status, timer: transition.task.timer || current.timer || emptyTaskTimer(), comments: current.comments || [], updatedAt };
+      }),
+    } : {
+      ...s,
+      tasks: [...s.tasks, { ...editable, comments: [], timer: clean.status === 'done' ? stopTaskTimer(emptyTaskTimer(), nowMs, 'completed') : emptyTaskTimer(), id: uid('task'), createdAt: updatedAt, updatedAt }],
+    });
     setShowTaskModal(false);
   };
 
@@ -327,6 +381,10 @@ function App() {
     setWorkspace((s) => ({ ...s, settings: { ...s.settings, theme } }));
   };
 
+  const modalTask = editingTask?.id
+    ? workspace.tasks.find((task) => task.id === editingTask.id) || editingTask
+    : editingTask;
+
   const headerTitle = view === 'team'
     ? 'Թիմ և դերեր'
     : view === 'today'
@@ -423,7 +481,7 @@ function App() {
               >
                 <div className="column-head"><div><span className={`status-icon ${status.id}`}>{status.icon}</span><strong>{status.title}</strong><span className="count">{tasks.filter((t) => t.status === status.id).length}</span></div>{canCreateTask(activeProject === 'all' ? '' : activeProject) && <button onClick={() => openNewTask(status.id)}>＋</button>}</div>
                 <div className="cards">
-                  {tasks.filter((t) => t.status === status.id).map((task) => <TaskCard key={task.id} task={task} project={projectName(task.projectId)} onOpen={() => { setEditingTask(task); setShowTaskModal(true); }} onDragStart={(e) => e.dataTransfer.setData('text/task-id', task.id)} draggable={canForMember(currentMember, 'tasks.update', task.projectId)} />)}
+                  {tasks.filter((t) => t.status === status.id).map((task) => <TaskCard key={task.id} task={task} project={projectName(task.projectId)} onOpen={() => { setEditingTask(task); setShowTaskModal(true); }} onDragStart={(e) => e.dataTransfer.setData('text/task-id', task.id)} draggable={canForMember(currentMember, 'tasks.update', task.projectId) && (task.status !== 'done' || canReopenCompleted)} />)}
                   {canCreateTask(activeProject === 'all' ? '' : activeProject) && <button className="add-card" onClick={() => openNewTask(status.id)}>＋ Ավելացնել առաջադրանք</button>}
                 </div>
               </section>
@@ -433,7 +491,7 @@ function App() {
           <div className="list-view">
             {tasks.length === 0 ? <EmptyState onAdd={() => openNewTask()} canAdd={canCreateTask(activeProject === 'all' ? '' : activeProject)} /> : tasks.map((task) => (
               <button className="list-task" key={task.id} onClick={() => { setEditingTask(task); setShowTaskModal(true); }}>
-                <span className={`check ${task.status === 'done' ? 'checked' : ''}`} onClick={(e) => { e.stopPropagation(); patchTask(task.id, { status: task.status === 'done' ? 'todo' : 'done' }); }}>{task.status === 'done' ? '✓' : ''}</span>
+                <span className={`check ${task.status === 'done' ? 'checked' : ''}`} onClick={(e) => { e.stopPropagation(); patchTask(task.id, { status: task.status === 'done' ? 'doing' : 'done' }); }}>{task.status === 'done' ? '✓' : ''}</span>
                 <span className="list-main">
                   <strong>{task.title}</strong>
                   <small>{projectName(task.projectId)} · {TASK_EXECUTION_TYPES[task.executionType] || 'Կատարման տեսակ չի նշված'} · {task.dueDate || 'Ժամկետ չի նշված'}{task.comments?.length ? ` · 💬 ${task.comments.length}` : ''}</small>
@@ -446,11 +504,16 @@ function App() {
       </main>
 
       {showTaskModal && <TaskModal
-        task={editingTask}
+        task={modalTask}
         projects={visibleProjects}
-        readOnly={editingTask?.id ? !canForMember(currentMember, 'tasks.update', editingTask.projectId) : false}
-        canDelete={editingTask?.id ? canForMember(currentMember, 'tasks.delete', editingTask.projectId) : false}
-        canComment={editingTask?.id ? canForMember(currentMember, 'tasks.comment', editingTask.projectId) : false}
+        readOnly={modalTask?.id ? !canForMember(currentMember, 'tasks.update', modalTask.projectId) : false}
+        canDelete={modalTask?.id ? canForMember(currentMember, 'tasks.delete', modalTask.projectId) : false}
+        canComment={modalTask?.id ? canForMember(currentMember, 'tasks.comment', modalTask.projectId) : false}
+        canUseTimer={modalTask?.id ? canUseTaskTimer(modalTask.projectId) : false}
+        canReopenCompleted={canReopenCompleted}
+        onTimerStart={startTimerForTask}
+        onTimerPause={pauseTimerForTask}
+        onTimerStop={stopTimerForTask}
         onAddComment={addTaskComment}
         onClose={() => setShowTaskModal(false)}
         onSave={saveTask}
@@ -463,67 +526,77 @@ function App() {
 function Nav({ active, icon, children, onClick }) { return <button className={active ? 'nav active' : 'nav'} onClick={onClick}><span>{icon}</span>{children}</button>; }
 
 function TaskCard({ task, project, onOpen, onDragStart, draggable }) {
+  const elapsed = getTimerElapsedMs(task.timer, Date.now());
+  const showTimer = task.timer?.state !== TIMER_STATES.IDLE || elapsed > 0;
   return <article className="task-card" draggable={draggable} onDragStart={draggable ? onDragStart : undefined} onClick={onOpen}>
     <div className="card-top"><span className={`priority-pill ${task.priority}`}>{PRIORITIES[task.priority]?.label}</span><span className="drag">{draggable ? '⋮⋮' : '◦'}</span></div>
     <h3>{task.title}</h3>
     <div className={`execution-type ${task.executionType ? '' : 'missing'}`}>{TASK_EXECUTION_TYPES[task.executionType] || 'Կատարման տեսակ չի նշված'}</div>
+    {showTimer && <div className={`task-timer-chip ${task.timer?.state || TIMER_STATES.IDLE}`}>⏱ {formatElapsedTime(elapsed)} · {task.timer?.state === TIMER_STATES.RUNNING ? 'Աշխատում է' : task.timer?.state === TIMER_STATES.PAUSED ? 'Pause' : 'Stop'}</div>}
     {task.description && <p>{task.description}</p>}
     {(task.tags || []).length > 0 && <div className="tags">{task.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div>}
-    <div className="card-meta">
-      <span>▣ {project}{task.comments?.length ? ` · 💬 ${task.comments.length}` : ''}</span>
-      <span className={!task.dueDate || (task.dueDate < todayKey() && task.status !== 'done') ? 'overdue' : ''}>◷ {task.dueDate || 'Ժամկետ չի նշված'}</span>
-    </div>
+    <div className="card-meta"><span>▣ {project}{task.comments?.length ? ` · 💬 ${task.comments.length}` : ''}</span><span className={!task.dueDate || (task.dueDate < todayKey() && task.status !== 'done') ? 'overdue' : ''}>◷ {task.dueDate || 'Ժամկետ չի նշված'}</span></div>
   </article>;
 }
 
-function TaskModal({ task, projects, readOnly, canDelete, canComment, onAddComment, onClose, onSave, onDelete }) {
-  const [draft, setDraft] = useState({
-    ...task,
-    executionType: task.executionType || '',
-    dueDate: task.dueDate || '',
-    tags: task.tags || [],
-  });
+function TaskModal({
+  task, projects, readOnly, canDelete, canComment, canUseTimer, canReopenCompleted,
+  onAddComment, onTimerStart, onTimerPause, onTimerStop, onClose, onSave, onDelete,
+}) {
+  const [draft, setDraft] = useState({ ...task, executionType: task.executionType || '', dueDate: task.dueDate || '', tags: task.tags || [] });
   const [commentText, setCommentText] = useState('');
+  const [timerNow, setTimerNow] = useState(Date.now());
   const set = (key, value) => setDraft((d) => ({ ...d, [key]: value }));
   const canSave = Boolean(draft.title.trim() && TASK_EXECUTION_TYPES[draft.executionType] && draft.dueDate);
   const comments = task.comments || [];
-
+  const timer = task.timer || emptyTaskTimer();
+  const timerElapsed = getTimerElapsedMs(timer, timerNow);
+  const timerStateLabel = timer.state === TIMER_STATES.RUNNING ? 'Աշխատում է' : timer.state === TIMER_STATES.PAUSED ? 'Pause' : timer.state === TIMER_STATES.STOPPED ? 'Stop' : 'Չմեկնարկած';
+  const statusOptions = task.status === 'done' ? (canReopenCompleted ? STATUSES.filter((status) => status.id === 'doing' || status.id === 'done') : STATUSES.filter((status) => status.id === 'done')) : STATUSES;
+  useEffect(() => {
+    setTimerNow(Date.now());
+    if (timer.state !== TIMER_STATES.RUNNING) return undefined;
+    const interval = window.setInterval(() => setTimerNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [timer.state, timer.startedAt]);
   const submitComment = () => {
     const text = commentText.trim();
     if (!text || !task.id || !canComment) return;
     if (onAddComment(task.id, text)) setCommentText('');
   };
-
   return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal" onMouseDown={(e) => e.stopPropagation()}>
     <div className="modal-head"><div><p className="eyebrow">ԱՌԱՋԱԴՐԱՆՔ</p><h2>{draft.id ? readOnly ? 'Դիտել առաջադրանքը' : 'Խմբագրել առաջադրանքը' : 'Նոր առաջադրանք'}</h2></div><button className="icon-button" onClick={onClose}>×</button></div>
     <label className="field"><span>Վերնագիր *</span><input autoFocus={!readOnly} disabled={readOnly} required value={draft.title} onChange={(e) => set('title', e.target.value)} placeholder="Ի՞նչ պետք է անել" /></label>
     <label className="field"><span>Նկարագրություն</span><textarea rows="4" disabled={readOnly} value={draft.description} onChange={(e) => set('description', e.target.value)} placeholder="Մանրամասներ, հղումներ կամ նշումներ…" /></label>
     <div className="field-grid">
       <label className="field"><span>Նախագիծ</span><select disabled={readOnly} value={draft.projectId} onChange={(e) => set('projectId', e.target.value)}><option value="">Առանց նախագծի</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-      <label className="field"><span>Կարգավիճակ</span><select disabled={readOnly} value={draft.status} onChange={(e) => set('status', e.target.value)}>{STATUSES.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}</select></label>
+      <label className="field"><span>Կարգավիճակ</span><select disabled={readOnly} value={draft.status} onChange={(e) => set('status', e.target.value)}>{statusOptions.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}</select></label>
       <label className="field"><span>Կատարման տեսակ *</span><select disabled={readOnly} required value={draft.executionType} onChange={(e) => set('executionType', e.target.value)}><option value="">Ընտրել կատարման տեսակը</option>{Object.entries(TASK_EXECUTION_TYPES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
       <label className="field"><span>Առաջնահերթություն</span><select disabled={readOnly} value={draft.priority} onChange={(e) => set('priority', e.target.value)}>{Object.entries(PRIORITIES).map(([id, p]) => <option key={id} value={id}>{p.label}</option>)}</select></label>
       <label className="field"><span>Կատարման ժամկետ *</span><input disabled={readOnly} required type="date" value={draft.dueDate} onChange={(e) => set('dueDate', e.target.value)} /></label>
     </div>
     {!readOnly && <p className="required-note">* Պարտադիր լրացվող դաշտեր</p>}
     <label className="field"><span>Պիտակներ</span><input disabled={readOnly} value={draft.tags.join(', ')} onChange={(e) => set('tags', e.target.value.split(',').map((x) => x.trim()))} placeholder="օրինակ՝ դիզայն, հաճախորդ" /></label>
-
+    <section className={`timer-panel ${timer.state}`}>
+      <div className="timer-panel-head"><div><strong>Կատարման ժամանակ</strong><span className="timer-state">{timerStateLabel}</span></div><div className="timer-display">⏱ {formatElapsedTime(timerElapsed)}</div></div>
+      {task.id ? <div className="timer-controls">
+        {timer.state === TIMER_STATES.IDLE && canUseTimer && task.status !== 'done' && <button className="primary" onClick={() => onTimerStart(task.id)}>▶ Մեկնարկել</button>}
+        {timer.state === TIMER_STATES.PAUSED && canUseTimer && task.status !== 'done' && <button className="primary" onClick={() => onTimerStart(task.id)}>▶ Շարունակել</button>}
+        {timer.state === TIMER_STATES.RUNNING && canUseTimer && <button className="ghost" onClick={() => onTimerPause(task.id)}>Ⅱ Pause</button>}
+        {[TIMER_STATES.RUNNING, TIMER_STATES.PAUSED].includes(timer.state) && canUseTimer && <button className="danger" onClick={() => onTimerStop(task.id)}>■ Stop</button>}
+        {timer.state === TIMER_STATES.STOPPED && <span className="timer-locked">Timer-ը վերջնական կանգնեցված է։</span>}
+      </div> : <p className="timer-hint">Timer-ը հասանելի կլինի առաջադրանքը պահպանելուց հետո։</p>}
+      {task.id && !canUseTimer && <p className="timer-hint">Ձեր դերը թույլ չի տալիս կառավարել timer-ը։</p>}
+      {timer.state !== TIMER_STATES.STOPPED && <p className="timer-hint">Մեկ այլ առաջադրանքի timer-ը միացնելիս այս timer-ը ավտոմատ կանցնի Pause վիճակի։</p>}
+      {task.status === 'done' && canReopenCompleted && <p className="timer-hint">«Ընթացքում» վերադարձնելուց հետո timer-ը կվերականգնվի Pause վիճակում։</p>}
+    </section>
     <section className="comments-section">
       <div className="comments-head"><strong>Մեկնաբանություններ</strong><span>{comments.length}</span></div>
-      {comments.length > 0 ? <div className="comment-list">
-        {comments.map((comment) => <article className="comment" key={comment.id}>
-          <div className="comment-meta"><strong>{comment.authorName || 'Օգտատեր'}</strong><time>{new Date(comment.createdAt).toLocaleString('hy-AM')}</time></div>
-          <p>{comment.text}</p>
-        </article>)}
-      </div> : <p className="comments-empty">Այս առաջադրանքի համար դեռ մեկնաբանություններ չկան։</p>}
-      {task.id && canComment && <div className="comment-compose">
-        <textarea rows="3" value={commentText} onChange={(e) => setCommentText(e.target.value)} placeholder="Գրել մեկնաբանություն…" />
-        <button className="primary" disabled={!commentText.trim()} onClick={submitComment}>Ուղարկել</button>
-      </div>}
+      {comments.length > 0 ? <div className="comment-list">{comments.map((comment) => <article className="comment" key={comment.id}><div className="comment-meta"><strong>{comment.authorName || 'Օգտատեր'}</strong><time>{new Date(comment.createdAt).toLocaleString('hy-AM')}</time></div><p>{comment.text}</p></article>)}</div> : <p className="comments-empty">Այս առաջադրանքի համար դեռ մեկնաբանություններ չկան։</p>}
+      {task.id && canComment && <div className="comment-compose"><textarea rows="3" value={commentText} onChange={(e) => setCommentText(e.target.value)} placeholder="Գրել մեկնաբանություն…" /><button className="primary" disabled={!commentText.trim()} onClick={submitComment}>Ուղարկել</button></div>}
       {!task.id && <p className="comments-hint">Մեկնաբանություն ավելացնելու համար նախ պահպանեք առաջադրանքը։</p>}
       {task.id && !canComment && <p className="comments-hint">Ձեր դերը թույլ չի տալիս մեկնաբանություն ավելացնել։</p>}
     </section>
-
     <div className="modal-actions">{draft.id && canDelete ? <button className="danger" onClick={() => onDelete(draft.id)}>Ջնջել</button> : <span />}<div><button className="ghost" onClick={onClose}>{readOnly ? 'Փակել' : 'Չեղարկել'}</button>{!readOnly && <button className="primary" disabled={!canSave} onClick={() => onSave(draft)}>Պահպանել</button>}</div></div>
   </div></div>;
 }

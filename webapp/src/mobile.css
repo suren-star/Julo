@@ -266,3 +266,6 @@ body,
     width: 100%;
   }
 }
+
+
+@media (max-width: 720px){.timer-panel{padding:14px}.timer-panel-head{align-items:flex-start;flex-direction:column;gap:10px}.timer-display{font-size:22px}.timer-controls{width:100%}.timer-controls button{flex:1 1 120px}}

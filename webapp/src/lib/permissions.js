@@ -32,12 +32,12 @@ const ROLE_PERMISSIONS = {
   admin: [
     'members.manage',
     'projects.create', 'projects.update', 'projects.delete',
-    'tasks.create', 'tasks.update', 'tasks.delete', 'tasks.comment',
+    'tasks.create', 'tasks.update', 'tasks.delete', 'tasks.comment', 'tasks.timer',
     'workspace.settings', 'workspace.import', 'workspace.export',
   ],
   member: [
     'projects.create', 'projects.update',
-    'tasks.create', 'tasks.update', 'tasks.delete', 'tasks.comment',
+    'tasks.create', 'tasks.update', 'tasks.delete', 'tasks.comment', 'tasks.timer',
     'workspace.export',
   ],
   viewer: ['tasks.comment', 'workspace.export'],
@@ -45,8 +45,8 @@ const ROLE_PERMISSIONS = {
 };
 
 const PROJECT_ROLE_PERMISSIONS = {
-  manager: ['projects.update', 'tasks.create', 'tasks.update', 'tasks.delete'],
-  editor: ['tasks.create', 'tasks.update', 'tasks.delete'],
+  manager: ['projects.update', 'tasks.create', 'tasks.update', 'tasks.delete', 'tasks.timer'],
+  editor: ['tasks.create', 'tasks.update', 'tasks.delete', 'tasks.timer'],
   viewer: [],
 };
 
@@ -78,3 +78,5 @@ export const visibleProjectsForMember = (workspace, member) => {
   const allowed = new Set(Object.keys(member.projectRoles || {}));
   return (workspace.projects || []).filter((project) => allowed.has(project.id));
 };
+
+export const canReopenCompletedTask = (member) => member?.role === 'owner' || member?.role === 'admin';

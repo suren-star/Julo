@@ -13,9 +13,10 @@ import {
   canManageMemberRole,
   visibleProjectsForMember,
 } from './lib/permissions.js';
+import { TASK_EXECUTION_TYPES } from './lib/task-types.js';
 
 const STATUSES = [
-  { id: 'todo', title: 'Անելիք', icon: '○' },
+  { id: 'todo', title: 'Առաջադրանք', icon: '○' },
   { id: 'doing', title: 'Ընթացքում', icon: '◐' },
   { id: 'done', title: 'Ավարտված', icon: '●' },
 ];
@@ -34,6 +35,7 @@ function App() {
   const [view, setView] = useState('board');
   const [activeProject, setActiveProject] = useState('all');
   const [query, setQuery] = useState('');
+  const [executionTypeFilter, setExecutionTypeFilter] = useState('all');
   const [editingTask, setEditingTask] = useState(null);
   const [showTaskModal, setShowTaskModal] = useState(false);
   const importInputRef = useRef(null);
@@ -70,14 +72,20 @@ function App() {
     return workspace.tasks.filter((task) => {
       if (currentMember?.role === 'guest' && !visibleProjectIds.has(task.projectId)) return false;
       if (activeProject !== 'all' && task.projectId !== activeProject) return false;
+      if (executionTypeFilter !== 'all' && task.executionType !== executionTypeFilter) return false;
       if (view === 'today' && task.dueDate !== todayKey()) return false;
       if (view === 'done' && task.status !== 'done') return false;
       if (view !== 'done' && view !== 'board' && view !== 'today' && view !== 'team' && task.status === 'done') return false;
       if (view === 'all' && task.status === 'done') return false;
       if (!q) return true;
-      return [task.title, task.description, ...(task.tags || [])].join(' ').toLocaleLowerCase('hy-AM').includes(q);
+      return [
+        task.title,
+        task.description,
+        TASK_EXECUTION_TYPES[task.executionType] || '',
+        ...(task.tags || []),
+      ].join(' ').toLocaleLowerCase('hy-AM').includes(q);
     });
-  }, [workspace.tasks, currentMember, visibleProjectIds, activeProject, view, query]);
+  }, [workspace.tasks, currentMember, visibleProjectIds, activeProject, executionTypeFilter, view, query]);
 
   const projectName = (id) => workspace.projects.find((p) => p.id === id)?.name || 'Առանց նախագծի';
   const projectTaskCount = (id) => workspace.tasks.filter((task) => task.projectId === id && task.status !== 'done').length;
@@ -109,16 +117,38 @@ function App() {
       return;
     }
     setEditingTask({
-      id: null, title: '', description: '', status,
+      id: null,
+      title: '',
+      description: '',
+      status,
       projectId,
-      priority: 'normal', dueDate: '', tags: [],
+      priority: 'normal',
+      executionType: '',
+      dueDate: '',
+      tags: [],
     });
     setShowTaskModal(true);
   };
 
   const saveTask = (task) => {
-    const clean = { ...task, title: task.title.trim(), tags: task.tags.filter(Boolean) };
-    if (!clean.title) return;
+    const clean = {
+      ...task,
+      title: task.title.trim(),
+      tags: Array.isArray(task.tags) ? task.tags.filter(Boolean) : [],
+    };
+    if (!clean.title) {
+      window.alert('Լրացրեք առաջադրանքի վերնագիրը։');
+      return;
+    }
+    if (!TASK_EXECUTION_TYPES[clean.executionType]) {
+      window.alert('Ընտրեք առաջադրանքի կատարման տեսակը։');
+      return;
+    }
+    if (!clean.dueDate) {
+      window.alert('Նշեք առաջադրանքի կատարման ժամկետը։');
+      return;
+    }
+
     const existing = clean.id ? workspace.tasks.find((item) => item.id === clean.id) : null;
     if (existing && !canForMember(currentMember, 'tasks.update', existing.projectId)) return;
     if (!existing && !canCreateTask(clean.projectId)) return;
@@ -248,6 +278,7 @@ function App() {
       setActiveProject('all');
       setView('board');
       setQuery('');
+      setExecutionTypeFilter('all');
       document.documentElement.dataset.theme = restored.settings?.theme || 'light';
       window.alert('Julo-ի պահուստային պատճենը հաջողությամբ ներմուծվեց։');
     } catch (error) {
@@ -321,6 +352,10 @@ function App() {
           </div>
           {view !== 'team' && <div className="top-actions">
             <label className="search"><span>⌕</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Որոնել առաջադրանքներ…" /></label>
+            <select className="type-filter" value={executionTypeFilter} onChange={(e) => setExecutionTypeFilter(e.target.value)} title="Ֆիլտրել ըստ կատարման տեսակի">
+              <option value="all">Բոլոր կատարման տեսակները</option>
+              {Object.entries(TASK_EXECUTION_TYPES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </select>
             <button className="icon-button" onClick={toggleTheme} title="Փոխել թեման">◐</button>
             <button className="primary" onClick={() => openNewTask()} disabled={!canCreateTask(activeProject === 'all' ? '' : activeProject)}>＋ Ավելացնել</button>
           </div>}
@@ -364,7 +399,10 @@ function App() {
             {tasks.length === 0 ? <EmptyState onAdd={() => openNewTask()} canAdd={canCreateTask(activeProject === 'all' ? '' : activeProject)} /> : tasks.map((task) => (
               <button className="list-task" key={task.id} onClick={() => { setEditingTask(task); setShowTaskModal(true); }}>
                 <span className={`check ${task.status === 'done' ? 'checked' : ''}`} onClick={(e) => { e.stopPropagation(); patchTask(task.id, { status: task.status === 'done' ? 'todo' : 'done' }); }}>{task.status === 'done' ? '✓' : ''}</span>
-                <span className="list-main"><strong>{task.title}</strong><small>{projectName(task.projectId)}{task.dueDate ? ` · ${task.dueDate}` : ''}</small></span>
+                <span className="list-main">
+                  <strong>{task.title}</strong>
+                  <small>{projectName(task.projectId)} · {TASK_EXECUTION_TYPES[task.executionType] || 'Կատարման տեսակ չի նշված'} · {task.dueDate || 'Ժամկետ չի նշված'}</small>
+                </span>
                 <span className={`priority ${task.priority}`}>{PRIORITIES[task.priority]?.icon}</span>
               </button>
             ))}
@@ -391,27 +429,40 @@ function TaskCard({ task, project, onOpen, onDragStart, draggable }) {
   return <article className="task-card" draggable={draggable} onDragStart={draggable ? onDragStart : undefined} onClick={onOpen}>
     <div className="card-top"><span className={`priority-pill ${task.priority}`}>{PRIORITIES[task.priority]?.label}</span><span className="drag">{draggable ? '⋮⋮' : '◦'}</span></div>
     <h3>{task.title}</h3>
+    <div className={`execution-type ${task.executionType ? '' : 'missing'}`}>{TASK_EXECUTION_TYPES[task.executionType] || 'Կատարման տեսակ չի նշված'}</div>
     {task.description && <p>{task.description}</p>}
     {(task.tags || []).length > 0 && <div className="tags">{task.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div>}
-    <div className="card-meta"><span>▣ {project}</span>{task.dueDate && <span className={task.dueDate < todayKey() && task.status !== 'done' ? 'overdue' : ''}>◷ {task.dueDate}</span>}</div>
+    <div className="card-meta">
+      <span>▣ {project}</span>
+      <span className={!task.dueDate || (task.dueDate < todayKey() && task.status !== 'done') ? 'overdue' : ''}>◷ {task.dueDate || 'Ժամկետ չի նշված'}</span>
+    </div>
   </article>;
 }
 
 function TaskModal({ task, projects, readOnly, canDelete, onClose, onSave, onDelete }) {
-  const [draft, setDraft] = useState({ ...task, tags: task.tags || [] });
+  const [draft, setDraft] = useState({
+    ...task,
+    executionType: task.executionType || '',
+    dueDate: task.dueDate || '',
+    tags: task.tags || [],
+  });
   const set = (key, value) => setDraft((d) => ({ ...d, [key]: value }));
+  const canSave = Boolean(draft.title.trim() && TASK_EXECUTION_TYPES[draft.executionType] && draft.dueDate);
+
   return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal" onMouseDown={(e) => e.stopPropagation()}>
     <div className="modal-head"><div><p className="eyebrow">ԱՌԱՋԱԴՐԱՆՔ</p><h2>{draft.id ? readOnly ? 'Դիտել առաջադրանքը' : 'Խմբագրել առաջադրանքը' : 'Նոր առաջադրանք'}</h2></div><button className="icon-button" onClick={onClose}>×</button></div>
-    <label className="field"><span>Վերնագիր</span><input autoFocus={!readOnly} disabled={readOnly} value={draft.title} onChange={(e) => set('title', e.target.value)} placeholder="Ի՞նչ պետք է անել" /></label>
+    <label className="field"><span>Վերնագիր *</span><input autoFocus={!readOnly} disabled={readOnly} required value={draft.title} onChange={(e) => set('title', e.target.value)} placeholder="Ի՞նչ պետք է անել" /></label>
     <label className="field"><span>Նկարագրություն</span><textarea rows="4" disabled={readOnly} value={draft.description} onChange={(e) => set('description', e.target.value)} placeholder="Մանրամասներ, հղումներ կամ նշումներ…" /></label>
     <div className="field-grid">
       <label className="field"><span>Նախագիծ</span><select disabled={readOnly} value={draft.projectId} onChange={(e) => set('projectId', e.target.value)}><option value="">Առանց նախագծի</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       <label className="field"><span>Կարգավիճակ</span><select disabled={readOnly} value={draft.status} onChange={(e) => set('status', e.target.value)}>{STATUSES.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}</select></label>
+      <label className="field"><span>Կատարման տեսակ *</span><select disabled={readOnly} required value={draft.executionType} onChange={(e) => set('executionType', e.target.value)}><option value="">Ընտրել կատարման տեսակը</option>{Object.entries(TASK_EXECUTION_TYPES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
       <label className="field"><span>Առաջնահերթություն</span><select disabled={readOnly} value={draft.priority} onChange={(e) => set('priority', e.target.value)}>{Object.entries(PRIORITIES).map(([id, p]) => <option key={id} value={id}>{p.label}</option>)}</select></label>
-      <label className="field"><span>Վերջնաժամկետ</span><input disabled={readOnly} type="date" value={draft.dueDate} onChange={(e) => set('dueDate', e.target.value)} /></label>
+      <label className="field"><span>Կատարման ժամկետ *</span><input disabled={readOnly} required type="date" value={draft.dueDate} onChange={(e) => set('dueDate', e.target.value)} /></label>
     </div>
+    {!readOnly && <p className="required-note">* Պարտադիր լրացվող դաշտեր</p>}
     <label className="field"><span>Պիտակներ</span><input disabled={readOnly} value={draft.tags.join(', ')} onChange={(e) => set('tags', e.target.value.split(',').map((x) => x.trim()))} placeholder="օրինակ՝ դիզայն, հաճախորդ" /></label>
-    <div className="modal-actions">{draft.id && canDelete ? <button className="danger" onClick={() => onDelete(draft.id)}>Ջնջել</button> : <span />}<div><button className="ghost" onClick={onClose}>{readOnly ? 'Փակել' : 'Չեղարկել'}</button>{!readOnly && <button className="primary" onClick={() => onSave(draft)}>Պահպանել</button>}</div></div>
+    <div className="modal-actions">{draft.id && canDelete ? <button className="danger" onClick={() => onDelete(draft.id)}>Ջնջել</button> : <span />}<div><button className="ghost" onClick={onClose}>{readOnly ? 'Փակել' : 'Չեղարկել'}</button>{!readOnly && <button className="primary" disabled={!canSave} onClick={() => onSave(draft)}>Պահպանել</button>}</div></div>
   </div></div>;
 }
 

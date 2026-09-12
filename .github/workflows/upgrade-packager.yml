@@ -1,0 +1,47 @@
+name: Upgrade Electron packager
+
+on:
+  push:
+    branches: [beta-dev]
+    paths:
+      - '.github/workflows/upgrade-packager.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Replace deprecated packager
+        run: |
+          npm uninstall electron-packager
+          npm install --save-dev @electron/packager@20.3.0
+
+      - name: Validate source
+        run: |
+          npm run check
+          npm test
+
+      - name: Audit dependencies
+        shell: bash
+        run: |
+          npm audit --audit-level=high || true
+
+      - name: Commit dependency migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          if git diff --cached --quiet; then
+            echo "No dependency changes to commit"
+            exit 0
+          fi
+          git commit -m "build: migrate to @electron/packager"
+          git push origin HEAD:beta-dev

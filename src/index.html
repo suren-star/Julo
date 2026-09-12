@@ -1,0 +1,2311 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' data: blob:; connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; object-src 'none'; base-uri 'self';">
+  <title>Мой Планер</title>
+  <link rel="stylesheet" href="css/style.css">
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap&subset=cyrillic,cyrillic-ext" rel="stylesheet">
+  <!-- Мгновенная инициализация сохраненной темы без мерцания -->
+  <script>
+    (function() {
+      try {
+        let theme = 'warm';
+        const savedTheme = localStorage.getItem('planer_theme');
+        if (savedTheme) {
+          theme = savedTheme;
+        } else {
+          const local = localStorage.getItem('planer_tasks_data');
+          if (local) {
+            const parsed = JSON.parse(local);
+            if (parsed?.settings?.theme) theme = parsed.settings.theme;
+          }
+        }
+        document.documentElement.className = 'theme-' + theme;
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body class="theme-warm">
+  <div class="app-layout">
+    
+    <!-- Боковая панель (Sidebar) -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header" style="display: flex; align-items: center; justify-content: space-between;">
+        <div class="logo">
+          <span class="logo-icon">📓</span>
+          <span class="logo-text">Планер</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <button type="button" class="btn-sm btn-primary" onclick="App.openQuickCaptureModal()" title="Быстрое добавление задачи (Ctrl+N или Alt+Space)" style="font-size: 11.5px; padding: 4px 8px; border-radius: var(--radius-sm);">
+            ⚡ Ввод
+          </button>
+          <button type="button" class="btn-icon" id="btn-sidebar-collapse" onclick="App.toggleSidebar()" title="Свернуть боковую панель" style="width: 26px; height: 26px; font-size: 11px; display: flex; align-items: center; justify-content: center; background: var(--bg-hover); border-radius: 4px; border: 1px solid var(--border-color); cursor: pointer; color: var(--text-secondary);">
+            ◀
+          </button>
+        </div>
+      </div>
+
+      <!-- Быстрые системные списки -->
+      <div class="nav-group">
+        <div class="nav-item active" id="nav-all-tasks" onclick="App.selectView('all')">
+          <span class="nav-icon">📋</span>
+          <span class="nav-label">Все активные задачи</span>
+          <span class="badge" id="badge-all-count">0</span>
+        </div>
+        <div class="nav-item" id="nav-today-tasks" onclick="App.selectView('today')">
+          <span class="nav-icon">⭐</span>
+          <span class="nav-label">Задачи на сегодня</span>
+          <span class="badge" id="badge-today-count">0</span>
+        </div>
+        <div class="nav-item" id="nav-reminders-view" onclick="App.selectView('reminders')">
+          <span class="nav-icon">🔔</span>
+          <span class="nav-label">Напоминания</span>
+          <span class="badge badge-alarm" id="badge-reminders-count">0</span>
+        </div>
+      </div>
+
+      <!-- Задачи на период -->
+      <div class="sidebar-section-title" style="margin-top: 14px; margin-bottom: 4px; padding: 0 10px; font-size: 11px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.5px; text-transform: uppercase;">📅 Расписание и периоды</div>
+      <div class="nav-group">
+        <div class="nav-item" id="nav-timeline-tasks" onclick="App.selectView('timeline')">
+          <span class="nav-icon">⏱️</span>
+          <span class="nav-label">Расписание (Тайм-блокинг)</span>
+          <span class="badge badge-accent" id="badge-timeline-count" style="display: none;">0</span>
+        </div>
+        <div class="nav-item" id="nav-week-tasks" onclick="App.selectView('week')">
+          <span class="nav-icon">📅</span>
+          <span class="nav-label">Неделя (по дням)</span>
+          <span class="badge" id="badge-week-count">0</span>
+        </div>
+        <div class="nav-item" id="nav-month-tasks" onclick="App.selectView('month')">
+          <span class="nav-icon">🗓️</span>
+          <span class="nav-label">Месяц</span>
+          <span class="badge" id="badge-month-count">0</span>
+        </div>
+      </div>
+
+      <div class="sidebar-divider"></div>
+
+      <!-- Дерево разделов и проектов -->
+      <div class="sections-container" id="sections-container">
+        <!-- Генерируется динамически через JS -->
+      </div>
+
+      <!-- Кнопка добавления нового раздела -->
+      <button class="btn-add-section" onclick="App.openAddSectionModal()">
+        <span>➕</span> Новый раздел (Лист)
+      </button>
+
+      <!-- Блок Тегов в Сайдбаре -->
+      <div class="tags-sidebar-block" id="tags-sidebar-block" style="display: none;">
+        <div class="sidebar-section-title">🏷️ ТЕГИ (#)</div>
+        <div class="tags-cloud" id="sidebar-tags-cloud"></div>
+      </div>
+
+      <div class="sidebar-spacer"></div>
+
+      <!-- Нижний блок: Архив, Статистика, Облако и Настройки -->
+      <div class="sidebar-footer">
+        <div class="nav-item nav-sync" id="sidebar-sync-btn" onclick="App.triggerManualSync()" title="Нажмите для синхронизации с облаком">
+          <span class="nav-icon" id="sidebar-sync-icon">☁️</span>
+          <span class="nav-label" id="sidebar-sync-label">Облако: Выкл</span>
+          <span class="sync-spin-icon" id="sidebar-sync-spinner" style="display: none; animation: spin 1s linear infinite;">🔄</span>
+        </div>
+        <div class="nav-item nav-stats" id="nav-stats" onclick="App.selectView('stats')">
+          <span class="nav-icon">📊</span>
+          <span class="nav-label">Статистика времени</span>
+        </div>
+        <div class="nav-item nav-archive" id="nav-archive" onclick="App.selectView('archive')">
+          <span class="nav-icon">🏆</span>
+          <span class="nav-label">Выполнено (Архив)</span>
+          <span class="badge badge-done" id="badge-archive-count">0</span>
+        </div>
+        <div class="nav-item nav-settings" onclick="App.openSettingsModal()">
+          <span class="nav-icon">⚙️</span>
+          <span class="nav-label">Бэкап и настройки</span>
+        </div>
+        <div class="nav-item nav-help" id="nav-help" onclick="App.selectView('help')">
+          <span class="nav-icon">📖</span>
+          <span class="nav-label">Справка и помощь</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Основная область приложения -->
+    <main class="main-content">
+      <!-- Плавающая кнопка разворачивания сайдбара -->
+      <button type="button" class="btn-sidebar-expand" id="btn-sidebar-expand" onclick="App.toggleSidebar()" title="Развернуть боковую панель">
+        <span>☰ Меню</span>
+      </button>
+      
+      <!-- РЕЖИМ 1: Активные задачи (Все, Сегодня, Папка, Тег) -->
+      <div class="view-panel" id="view-active-tasks">
+        <header class="content-header">
+          <div class="header-titles">
+            <h1 class="view-title" id="current-view-title">Все активные задачи</h1>
+            <p class="view-subtitle" id="current-view-subtitle">Список текущих дел в работе</p>
+          </div>
+          <div class="header-actions">
+            <!-- Переключатель режима для "Сегодня": Обычный список / Сплит-экран со шкалой -->
+            <div class="view-mode-buttons" id="today-view-mode-toggle" style="display: none;">
+              <button class="btn-subtle btn-header-action active" id="btn-today-mode-list" onclick="App.setTodayTimelineMode('list')" title="Классический список задач">☰ Список</button>
+              <button class="btn-subtle btn-header-action" id="btn-today-mode-split" onclick="App.setTodayTimelineMode('split')" title="Сплит-экран: список + интерактивная шкала дня">⏱️ Со шкалой времени</button>
+            </div>
+            <div class="view-mode-buttons" id="tasks-expand-collapse-buttons">
+              <button class="btn-subtle btn-header-action" onclick="App.expandAllSubtasks()" title="Развернуть подпункты и описания во всех задачах">▾ Развернуть все</button>
+              <button class="btn-subtle btn-header-action" onclick="App.collapseAllSubtasks()" title="Скрыть подпункты во всех задачах">▸ Свернуть все</button>
+            </div>
+            <div class="search-box">
+              <input type="text" id="task-search-input" placeholder="Поиск по задачам..." oninput="App.onSearchTasks(this.value)">
+            </div>
+          </div>
+        </header>
+ 
+        <!-- Панель фильтрации и группировки (для режима "Сегодня" и выбора проектов/категорий) -->
+        <div class="today-filters-bar" id="today-filters-bar" style="display: none;">
+          <div class="today-filters-inner">
+            <div class="today-filter-item">
+              <span class="today-filter-icon">🏷️</span>
+              <label for="today-filter-section" class="today-filter-label">Категория:</label>
+              <select id="today-filter-section" class="input-select today-filter-select" onchange="App.onTodayFilterSectionChange(this.value)">
+                <option value="all">Все категории (разделы)</option>
+              </select>
+            </div>
+
+            <div class="today-filter-item">
+              <span class="today-filter-icon">📁</span>
+              <label for="today-filter-project" class="today-filter-label">Папка / Проект:</label>
+              <select id="today-filter-project" class="input-select today-filter-select" onchange="App.onTodayFilterProjectChange(this.value)">
+                <option value="all">Все папки и проекты</option>
+              </select>
+            </div>
+
+            <div class="today-filter-item">
+              <span class="today-filter-icon">↕️</span>
+              <label for="today-sort-by" class="today-filter-label">Сортировка:</label>
+              <select id="today-sort-by" class="input-select today-filter-select" onchange="App.onTodaySortChange(this.value)">
+                <option value="default">По порядку</option>
+                <option value="group_project">📁 По проектам (группировка)</option>
+                <option value="group_section">🏷️ По категориям (группировка)</option>
+                <option value="time_asc">⏰ По времени / напоминанию</option>
+                <option value="spent_desc">⏱️ По затраченному времени</option>
+                <option value="title_asc">🔤 По алфавиту (А-Я)</option>
+              </select>
+            </div>
+
+            <button type="button" class="btn-xs btn-subtle" id="btn-today-reset-filters" onclick="App.resetTodayFilters()" style="display: none;" title="Сбросить выбранные фильтры">
+              ↺ Сброс
+            </button>
+          </div>
+        </div>
+
+        <!-- Контейнер для режима Сегодня со сплит-экраном шкалы времени -->
+        <div class="today-split-wrapper" id="today-split-wrapper">
+          <div class="today-tasks-col" id="today-tasks-col">
+            <!-- Блок быстрого добавления задачи -->
+            <div class="task-input-card">
+              <div class="task-input-row">
+                <input type="text" id="new-task-title" class="task-text-input" placeholder="+ Добавить задачу... (Нажмите Enter)" onkeydown="if(event.key === 'Enter') App.addNewTask()">
+                
+                <div class="input-controls">
+                  <!-- Выбор цвета задачи -->
+                  <div class="color-picker-wrap" id="new-task-color-wrap">
+                    <button type="button" class="btn-color-select" id="new-task-color-btn" onclick="App.toggleColorDropdown(event, 'new-task-color-menu')" title="Цвет задачи">
+                      <span class="color-dot" id="new-task-color-dot" style="background-color: var(--text-muted);"></span>
+                    </button>
+                    <div class="color-dropdown" id="new-task-color-menu" onclick="event.stopPropagation()">
+                      <div class="color-swatch-item" onclick="App.selectNewTaskColor('')"><span class="color-dot" style="background:#6b7280;"></span> Без цвета</div>
+                      <div class="color-swatch-item" onclick="App.selectNewTaskColor('#ef4444')"><span class="color-dot" style="background:#ef4444;"></span> 🔴 Красный</div>
+                      <div class="color-swatch-item" onclick="App.selectNewTaskColor('#f97316')"><span class="color-dot" style="background:#f97316;"></span> 🟠 Оранжевый</div>
+                      <div class="color-swatch-item" onclick="App.selectNewTaskColor('#eab308')"><span class="color-dot" style="background:#eab308;"></span> 🟡 Желтый</div>
+                      <div class="color-swatch-item" onclick="App.selectNewTaskColor('#10b981')"><span class="color-dot" style="background:#10b981;"></span> 🟢 Зеленый</div>
+                      <div class="color-swatch-item" onclick="App.selectNewTaskColor('#3b82f6')"><span class="color-dot" style="background:#3b82f6;"></span> 🔵 Синий</div>
+                      <div class="color-swatch-item" onclick="App.selectNewTaskColor('#8b5cf6')"><span class="color-dot" style="background:#8b5cf6;"></span> 🟣 Фиолетовый</div>
+                      <div class="color-swatch-item" onclick="App.selectNewTaskColor('#ec4899')"><span class="color-dot" style="background:#ec4899;"></span> 🌸 Розовый</div>
+                    </div>
+                  </div>
+
+                  <!-- Выбор раздела/проекта -->
+                  <select id="new-task-project-select" class="input-select" title="Выберите проект"></select>
+
+                  <!-- Кнопка установки даты/напоминания -->
+                  <div class="reminder-picker-btn" id="new-task-reminder-btn" onclick="App.toggleNewTaskReminderPopover(event)">
+                    <span id="reminder-btn-label">📅 Дата</span>
+                    <!-- Popover даты/времени -->
+                    <div class="reminder-popover" id="reminder-popover" onclick="event.stopPropagation()">
+                      <div class="popover-header">📅 Дата выполнения и время</div>
+                      
+                      <div class="popover-row">
+                        <label>Дата:</label>
+                        <input type="date" id="new-task-date">
+                      </div>
+                      <div style="display: flex; gap: 4px; margin-top: 4px;">
+                        <button type="button" class="btn-xs btn-subtle" onclick="App.setNewTaskDateShortcut('today')">Сегодня</button>
+                        <button type="button" class="btn-xs btn-subtle" onclick="App.setNewTaskDateShortcut('tomorrow')">Завтра</button>
+                        <button type="button" class="btn-xs btn-subtle" onclick="App.setNewTaskDateShortcut('next_week')">+ Неделя</button>
+                      </div>
+
+                      <div class="settings-divider" style="margin: 8px 0;"></div>
+
+                      <label class="toggle-row" style="font-size: 12px;">
+                        <input type="checkbox" id="new-task-enable-time" onchange="document.getElementById('new-task-time-box').style.display = this.checked ? 'flex' : 'none'">
+                        <span>Звуковое напоминание (Будильник)</span>
+                      </label>
+
+                      <div id="new-task-time-box" style="display: none; flex-direction: column; gap: 6px; margin-top: 6px;">
+                        <div class="popover-row">
+                          <label>Время:</label>
+                          <input type="time" id="new-task-time" value="12:00">
+                        </div>
+                        <div class="popover-row">
+                          <label>Сигнал:</label>
+                          <select id="new-task-reminder-advance" class="input-select" style="font-size: 12px; padding: 3px 6px;">
+                            <option value="0">В момент времени (вовремя)</option>
+                            <option value="5">За 5 минут</option>
+                            <option value="10">За 10 минут</option>
+                            <option value="15">За 15 минут</option>
+                            <option value="30">За 30 минут</option>
+                            <option value="60">За 1 час</option>
+                            <option value="120">За 2 часа</option>
+                            <option value="1440">За 1 день</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div class="popover-row" style="margin-top: 6px;">
+                        <label>Повтор:</label>
+                        <select id="new-task-repeat" class="input-select" style="font-size: 12px; padding: 3px 6px;">
+                          <option value="none">Однократно</option>
+                          <option value="daily">Каждый день</option>
+                          <option value="weekdays">По будням (Пн-Пт)</option>
+                          <option value="weekly">Раз в неделю</option>
+                          <option value="monthly">Раз в месяц</option>
+                          <option value="yearly">Раз в год</option>
+                        </select>
+                      </div>
+
+                      <div class="popover-actions">
+                        <button type="button" class="btn-sm btn-subtle" onclick="App.clearNewTaskReminder()">Сброс</button>
+                        <button type="button" class="btn-sm btn-primary" onclick="App.applyNewTaskReminder()">Готово</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Кнопка Добавить -->
+                  <button class="btn-primary btn-add-task" id="btn-add-task" onclick="App.addNewTask()">Добавить</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Контейнер списка задач (с Drag-and-Drop) -->
+            <div class="tasks-list-container" id="tasks-list">
+              <!-- Задачи рендерятся сюда -->
+            </div>
+
+            <div class="empty-state" id="tasks-empty-state" style="display: none;">
+              <div class="empty-icon">✨</div>
+              <div class="empty-title">Все задачи выполнены!</div>
+              <div class="empty-desc">Отличная работа. Добавьте новую задачу выше или отдохните.</div>
+            </div>
+          </div>
+
+          <!-- Интерактивный сплиттер между списком задач и шкалой времени -->
+          <div class="column-resizer" id="resizer-today-split" onmousedown="App.onColumnResizeStart(event, 'today')" style="display: none;" title="Потяните влево-вправо для настройки ширины шкалы времени и списка задач">
+            <div class="column-resizer-line"></div>
+          </div>
+
+          <!-- Правая колонка: интерактивная шкала дня (Тайм-блокинг) -->
+          <div class="today-timeline-col" id="today-timeline-col" style="display: none;">
+            <div class="timeline-card">
+              <div class="timeline-card-header">
+                <div class="timeline-card-title">
+                  <span class="timeline-icon">⏱️</span>
+                  <span id="today-timeline-date-title">Тайм-блокинг на сегодня</span>
+                </div>
+                <div class="timeline-card-actions">
+                  <button type="button" class="btn-xs btn-subtle" id="btn-today-timeline-24h" onclick="App.toggleTimeline24h('today')" title="Показать все 24 часа / умный авто-диапазон">🕒 24ч</button>
+                  <button type="button" class="btn-xs btn-subtle" onclick="App.scrollTimelineToNow('today')" title="Прокрутить шкалу к текущему времени">🔴 К «Сейчас»</button>
+                </div>
+              </div>
+              <div class="timeline-scroll-area" id="today-timeline-scroll">
+                <div class="timeline-expand-edge-top" onclick="App.expandTimelineRangeEarly('today')" title="Кликните, чтобы показать более ранние часы">▲ Раньше</div>
+                <div class="timeline-grid-container" id="today-timeline-grid" ondragover="App.onTimelineDragOver(event)" ondragleave="App.onTimelineDragLeave(event)" ondrop="App.onTimelineDrop(event, 'today')">
+                  <!-- Часовые слоты и блоки генерируются через JS -->
+                </div>
+                <div class="timeline-expand-edge-bottom" onclick="App.expandTimelineRangeLate('today')" title="Кликните, чтобы показать более поздние часы">▼ Позже</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- РЕЖИМ 2: Задачи на период (Неделя / Месяц) -->
+      <div class="view-panel" id="view-period" style="display: none;">
+        <header class="content-header">
+          <div class="header-titles">
+            <h1 class="view-title" id="period-view-title">📅 Задачи на неделю</h1>
+            <p class="view-subtitle" id="period-view-subtitle">Расписание по дням недели</p>
+          </div>
+          <div class="header-actions">
+            <div class="period-nav-controls">
+              <button class="btn-subtle" onclick="App.prevPeriod()" title="Предыдущий период">◀ Назад</button>
+              <button class="btn-subtle" onclick="App.todayPeriod()" title="Вернуться к текущей дате">Сегодня</button>
+              <button class="btn-subtle" onclick="App.nextPeriod()" title="Следующий период">Вперед ▶</button>
+            </div>
+            <div class="search-box">
+              <input type="text" id="period-search-input" placeholder="Поиск в периоде..." oninput="App.onSearchPeriodTasks(this.value)">
+            </div>
+          </div>
+        </header>
+
+        <!-- Контейнер для отображения недели или месяца -->
+        <div id="period-view-content"></div>
+      </div>
+
+      <!-- РЕЖИМ 3: Расписание и Тайм-блокинг (День / 7 Дней Недели) -->
+      <div class="view-panel" id="view-timeline" style="display: none;">
+        <header class="content-header">
+          <div class="header-titles">
+            <h1 class="view-title" id="timeline-view-title">⏱️ Расписание и Тайм-блокинг</h1>
+            <p class="view-subtitle" id="timeline-view-subtitle">Визуальное планирование дня и недели по часам</p>
+          </div>
+          <div class="header-actions">
+            <!-- Навигация по датам -->
+            <div class="timeline-date-navigator">
+              <button class="btn-subtle" onclick="App.navigateTimelinePeriod(-1)" title="Предыдущий период">◀</button>
+              <button class="btn-subtle" onclick="App.resetTimelinePeriodToToday()" title="Перейти к сегодняшнему дню">Сегодня</button>
+              <button class="btn-subtle" onclick="App.navigateTimelinePeriod(1)" title="Следующий период">▶</button>
+              <span class="timeline-current-period-label" id="timeline-period-label">1 — 7 сентября 2026</span>
+            </div>
+
+            <!-- Масштаб: 1 День / 7 Дней Недели -->
+            <div class="view-mode-buttons">
+              <button class="btn-subtle btn-header-action" id="btn-timeline-scale-day" onclick="App.setTimelineScale('day')" title="Подробный тайм-блокинг на один день">1 День</button>
+              <button class="btn-subtle btn-header-action active" id="btn-timeline-scale-week" onclick="App.setTimelineScale('week')" title="Сетка расписания на всю неделю (7 дней)">📅 7 Дней (Неделя)</button>
+            </div>
+
+            <button type="button" class="btn-subtle btn-header-action" id="btn-timeline-main-24h" onclick="App.toggleTimeline24h('main')" title="Показать все 24 часа / умный авто-диапазон">🕒 24ч</button>
+          </div>
+        </header>
+
+        <!-- Фильтры расписания -->
+        <div class="today-filters-bar" style="margin-bottom: 8px;">
+          <div class="today-filters-inner">
+            <div class="today-filter-item">
+              <span class="today-filter-icon">🏷️</span>
+              <label for="timeline-filter-section" class="today-filter-label">Категория:</label>
+              <select id="timeline-filter-section" class="input-select today-filter-select" onchange="App.onTimelineFilterSectionChange(this.value)">
+                <option value="all">Все категории</option>
+              </select>
+            </div>
+
+            <div class="today-filter-item">
+              <span class="today-filter-icon">📁</span>
+              <label for="timeline-filter-project" class="today-filter-label">Папка / Проект:</label>
+              <select id="timeline-filter-project" class="input-select today-filter-select" onchange="App.onTimelineFilterProjectChange(this.value)">
+                <option value="all">Все папки и проекты</option>
+              </select>
+            </div>
+
+            <div class="today-filter-item">
+              <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; color: var(--text-secondary);">
+                <input type="checkbox" id="timeline-show-completed" onchange="App.onTimelineShowCompletedChange(this.checked)">
+                <span>Показывать выполненные</span>
+              </label>
+            </div>
+
+            <button type="button" class="btn-xs btn-subtle" onclick="App.scrollTimelineToNow('main')" style="margin-left: auto;" title="Прокрутить сетку к текущему времени">
+              🔴 К «Сейчас»
+            </button>
+          </div>
+        </div>
+
+        <!-- Рабочая область: Беклог слева + Сетка расписания справа -->
+        <div class="timeline-main-layout">
+          <!-- Левая панель: Нераспределенные задачи -->
+          <div class="timeline-backlog-panel" id="timeline-backlog-panel">
+            <div class="timeline-backlog-header">
+              <span class="timeline-backlog-title">📥 Нераспределенные задачи</span>
+              <span class="timeline-backlog-count badge" id="timeline-backlog-badge">0</span>
+            </div>
+            <div class="timeline-backlog-hint">
+              <span>💡 Перетащите задачу на нужное время или день в сетке справа</span>
+            </div>
+            <div class="timeline-backlog-list" id="timeline-backlog-list">
+              <!-- Карточки беклога -->
+            </div>
+          </div>
+
+          <!-- Интерактивный сплиттер между беклогом и расписанием -->
+          <div class="column-resizer" id="resizer-timeline-backlog" onmousedown="App.onColumnResizeStart(event, 'timeline')" title="Потяните влево-вправо для настройки ширины беклога и сетки расписания">
+            <div class="column-resizer-line"></div>
+          </div>
+
+          <!-- Правая панель: Интерактивная сетка дня / недели -->
+          <div class="timeline-grid-wrapper">
+            <div class="timeline-scroll-area" id="main-timeline-scroll">
+              <div class="timeline-expand-edge-top" onclick="App.expandTimelineRangeEarly('main')" title="Кликните, чтобы показать более ранние часы">▲ Раньше</div>
+              <div class="timeline-schedule-container" id="main-timeline-schedule">
+                <!-- Сетка дня или недели рендерится через JS -->
+              </div>
+              <div class="timeline-expand-edge-bottom" onclick="App.expandTimelineRangeLate('main')" title="Кликните, чтобы показать более поздние часы">▼ Позже</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- РЕЖИМ 2: Архив «Выполнено» -->
+      <div class="view-panel" id="view-archive" style="display: none;">
+        <header class="content-header">
+          <div class="header-titles">
+            <h1 class="view-title">🏆 Архив выполненных задач</h1>
+            <p class="view-subtitle">История завершенных дел, сгруппированная по датам и проектам</p>
+          </div>
+        </header>
+
+        <!-- Панель фильтров архива -->
+        <div class="archive-filters-card">
+          <div class="filter-group">
+            <label class="filter-label">Период:</label>
+            <div class="filter-buttons-row">
+              <button class="btn-filter active" data-period="all" onclick="App.setArchivePeriod('all')">Все время</button>
+              <button class="btn-filter" data-period="today" onclick="App.setArchivePeriod('today')">Сегодня</button>
+              <button class="btn-filter" data-period="yesterday" onclick="App.setArchivePeriod('yesterday')">Вчера</button>
+              <button class="btn-filter" data-period="week" onclick="App.setArchivePeriod('week')">7 дней</button>
+              <button class="btn-filter" data-period="month" onclick="App.setArchivePeriod('month')">30 дней</button>
+              <button class="btn-filter" data-period="custom" onclick="App.setArchivePeriod('custom')">📅 Выбрать период</button>
+            </div>
+          </div>
+
+          <!-- Кастомный диапазон дат -->
+          <div class="custom-date-range" id="custom-date-range" style="display: none;">
+            <div class="date-input-group">
+              <label>С даты:</label>
+              <input type="date" id="archive-date-from" onchange="App.applyArchiveFilters()">
+            </div>
+            <div class="date-input-group">
+              <label>По дату:</label>
+              <input type="date" id="archive-date-to" onchange="App.applyArchiveFilters()">
+            </div>
+          </div>
+
+          <div class="filter-group" style="margin-top: 12px;">
+            <label class="filter-label">Фильтр по проекту/листу:</label>
+            <div class="filter-controls-row">
+              <select id="archive-section-filter" class="input-select" onchange="App.applyArchiveFilters()">
+                <option value="all">📁 Все разделы и проекты</option>
+                <option value="work">💼 Только «Рабочие задачи»</option>
+                <option value="personal">🏠 Только «Личные задачи»</option>
+              </select>
+
+              <div class="search-box archive-search">
+                <input type="text" id="archive-search-input" placeholder="Поиск в архиве..." oninput="App.applyArchiveFilters()">
+              </div>
+            </div>
+          </div>
+
+          <!-- Сводная статистика за выбранный период -->
+          <div class="archive-stats-summary" id="archive-stats-summary">
+            <div class="stat-pill">
+              <span class="stat-num" id="stat-completed-count">0</span>
+              <span class="stat-text">выполнено задач</span>
+            </div>
+            <div class="stat-pill">
+              <span class="stat-num" id="stat-total-time">0 ч 00 мин</span>
+              <span class="stat-text">общее время по таймеру</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Список выполненных задач по группам дат -->
+        <div class="archive-list-container" id="archive-list">
+          <!-- Группы дат рендерятся сюда -->
+        </div>
+
+        <div class="empty-state" id="archive-empty-state" style="display: none;">
+          <div class="empty-icon">📁</div>
+          <div class="empty-title">За выбранный период нет выполненных задач</div>
+          <div class="empty-desc">Завершите задачи в основном списке или измените параметры фильтра.</div>
+        </div>
+      </div>
+
+      <!-- РЕЖИМ 4: Аналитика и статистика времени (с графиком дня и перерывами) -->
+      <div class="view-panel" id="view-stats" style="display: none;">
+        <header class="content-header">
+          <div class="header-titles">
+            <h1 class="view-title">📊 Аналитика времени и перерывов</h1>
+            <p class="view-subtitle">Поминутный график дня, хронология сессий и статистика продуктивности</p>
+          </div>
+          <div class="header-actions">
+            <button class="btn-subtle" onclick="App.toggleBreak()" title="Запустить или остановить перерыв">
+              <span>☕</span> <span id="stats-btn-break-text">Начать перерыв</span>
+            </button>
+            <button class="btn-primary" onclick="App.openManualTimeLogModal()" title="Добавить запись времени вручную">
+              <span>➕</span> Запись времени
+            </button>
+          </div>
+        </header>
+
+        <!-- Фильтры периода статистики -->
+        <div class="archive-filters-card">
+          <div class="filter-group">
+            <label class="filter-label">Быстрый выбор периода:</label>
+            <div class="filter-buttons-row">
+              <button class="btn-filter active" data-stats-period="today" onclick="App.setStatsPeriod('today')">Сегодня</button>
+              <button class="btn-filter" data-stats-period="yesterday" onclick="App.setStatsPeriod('yesterday')">Вчера</button>
+              <button class="btn-filter" data-stats-period="week" onclick="App.setStatsPeriod('week')">7 дней (Неделя)</button>
+              <button class="btn-filter" data-stats-period="month" onclick="App.setStatsPeriod('month')">30 дней (Месяц)</button>
+              <button class="btn-filter" data-stats-period="all" onclick="App.setStatsPeriod('all')">Все время</button>
+            </div>
+          </div>
+
+          <div class="filter-group" style="margin-top: 12px;">
+            <label class="filter-label">📅 Произвольный период (от даты до даты) или фильтр по проекту:</label>
+            <div class="filter-controls-row" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+              <div class="date-range-picker-group" style="display: flex; align-items: center; gap: 6px;">
+                <label style="font-size: 12.5px; color: var(--text-secondary); margin: 0;">С:</label>
+                <input type="date" id="stats-date-from" class="input-date" style="width: 140px;" onchange="App.onStatsDateRangeChange()">
+                <label style="font-size: 12.5px; color: var(--text-secondary); margin: 0;">По:</label>
+                <input type="date" id="stats-date-to" class="input-date" style="width: 140px;" onchange="App.onStatsDateRangeChange()">
+                <button type="button" class="btn-sm btn-primary" onclick="App.applyStatsCustomRange()">Показать</button>
+                <button type="button" class="btn-sm btn-subtle" onclick="App.setStatsPeriod('today')" title="Вернуться к текущему дню">✕ Сегодня</button>
+              </div>
+
+              <select id="stats-section-filter" class="input-select" style="min-width: 220px;" onchange="App.applyStatsFilters()">
+                <option value="all">📁 Все разделы и проекты</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Сводные KPI карточки -->
+          <div class="stats-kpi-grid" id="stats-kpi-grid">
+            <div class="stat-kpi-card kpi-work">
+              <div class="kpi-icon">💼</div>
+              <div class="kpi-info">
+                <span class="kpi-value" id="kpi-work-time">0 мин</span>
+                <span class="kpi-label">Чистое время работы</span>
+              </div>
+            </div>
+
+            <div class="stat-kpi-card kpi-break">
+              <div class="kpi-icon">☕</div>
+              <div class="kpi-info">
+                <span class="kpi-value" id="kpi-break-time">0 мин</span>
+                <span class="kpi-label">Перерывы и отдых</span>
+              </div>
+            </div>
+
+            <div class="stat-kpi-card kpi-total">
+              <div class="kpi-icon">⚡</div>
+              <div class="kpi-info">
+                <span class="kpi-value" id="kpi-total-activity">0 мин</span>
+                <span class="kpi-label">Общая активность</span>
+              </div>
+            </div>
+
+            <div class="stat-kpi-card kpi-done">
+              <div class="kpi-icon">🎯</div>
+              <div class="kpi-info">
+                <span class="kpi-value" id="kpi-sessions-count">0</span>
+                <span class="kpi-label">Зафиксировано сессий</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Контейнер графиков и таймлайна дня -->
+        <div id="stats-charts-container">
+          <!-- Рендерится динамически: таймлайн дня или диаграммы за неделю/месяц -->
+        </div>
+
+        <!-- Детальный журнал сессий (хронология) -->
+        <div class="stats-logs-card">
+          <div class="stats-logs-header">
+            <h3 class="stats-logs-title">📋 Хронологический журнал сессий</h3>
+            <span class="stats-logs-count" id="stats-logs-count">0 записей</span>
+          </div>
+          <div class="stats-logs-table-wrap" id="stats-logs-list">
+            <!-- Список сессий рендерится сюда -->
+          </div>
+        </div>
+      </div>
+
+      <!-- РЕЖИМ 5: Напоминания и будильники (Автономные) -->
+      <div class="view-panel" id="view-reminders" style="display: none;">
+        <header class="content-header">
+          <div class="header-titles">
+            <h1 class="view-title">🔔 Напоминания и будильники</h1>
+            <p class="view-subtitle">Автономные напоминания по датам и времени (не захламляют список рабочих задач)</p>
+          </div>
+          <div class="header-actions">
+            <div class="filter-buttons-row">
+              <button class="btn-filter active" id="reminders-tab-active" onclick="App.setRemindersTab('active')">⏳ Предстоящие</button>
+              <button class="btn-filter" id="reminders-tab-today" onclick="App.setRemindersTab('today')">⭐ На сегодня</button>
+              <button class="btn-filter" id="reminders-tab-history" onclick="App.setRemindersTab('history')">🏆 История (Завершенные)</button>
+            </div>
+          </div>
+        </header>
+
+        <!-- Карточка добавления напоминания (красивый широкий инпут как в задачах) -->
+        <div class="task-input-card reminder-input-card">
+          <!-- Строка 1: Текстовое поле ввода -->
+          <div class="task-input-row">
+            <input type="text" 
+                   id="new-reminder-text" 
+                   class="task-text-input" 
+                   placeholder="+ О чем напомнить? Например: Позвонить врачу, Выпить витамины, Забрать заказ... (Нажмите Enter)" 
+                   autocomplete="off"
+                   onkeydown="if(event.key === 'Enter') App.addNewReminder()">
+          </div>
+
+          <!-- Строка 2: Панель параметров напоминания -->
+          <div class="reminder-options-toolbar">
+            <!-- Выбор даты -->
+            <div class="reminder-toolbar-group">
+              <span class="reminder-toolbar-label">📅 Дата:</span>
+              <div class="reminder-chips-row">
+                <button type="button" class="btn-sm btn-subtle reminder-date-chip active" id="reminder-chip-today" onclick="App.setNewReminderDate('today')">Сегодня</button>
+                <button type="button" class="btn-sm btn-subtle reminder-date-chip" id="reminder-chip-tomorrow" onclick="App.setNewReminderDate('tomorrow')">Завтра</button>
+                <input type="date" id="new-reminder-custom-date" class="input-date reminder-custom-date" onchange="App.onNewReminderCustomDateChange(this.value)">
+              </div>
+            </div>
+
+            <div class="reminder-toolbar-divider"></div>
+
+            <!-- Переключатель точного времени / Будильника -->
+            <div class="reminder-toolbar-group">
+              <label class="reminder-toggle-label" style="display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;">
+                <input type="checkbox" id="new-reminder-has-time" onchange="App.toggleNewReminderTime(this.checked)">
+                <span class="reminder-toolbar-label">⏰ Точное время (Будильник)</span>
+              </label>
+              <div class="reminder-chips-row" id="new-reminder-time-box" style="display: none; margin-left: 4px;">
+                <input type="time" id="new-reminder-time" class="input-time reminder-time-picker" value="12:00">
+                <button type="button" class="btn-sm btn-subtle reminder-time-chip" onclick="App.setNewReminderTime('10:00')">10:00</button>
+                <button type="button" class="btn-sm btn-subtle reminder-time-chip" onclick="App.setNewReminderTime('14:00')">14:00</button>
+                <button type="button" class="btn-sm btn-subtle reminder-time-chip" onclick="App.setNewReminderTime('18:00')">18:00</button>
+              </div>
+            </div>
+
+            <!-- Опережающее напоминание -->
+            <div class="reminder-toolbar-group" id="new-reminder-advance-group" style="display: none;">
+              <span class="reminder-toolbar-label">⏳ Опережение:</span>
+              <select id="new-reminder-advance" class="input-select reminder-repeat-select" style="min-width: 130px;">
+                <option value="0">Вовремя (в момент)</option>
+                <option value="5">За 5 минут</option>
+                <option value="10">За 10 минут</option>
+                <option value="15">За 15 минут</option>
+                <option value="30">За 30 минут</option>
+                <option value="60">За 1 час</option>
+                <option value="120">За 2 часа</option>
+                <option value="1440">За 1 день</option>
+              </select>
+              <label style="display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--text-secondary); cursor: pointer; user-select: none; margin-left: 6px;" title="Напомнить повторно и в точный момент наступления">
+                <input type="checkbox" id="new-reminder-advance-also-exact" checked>
+                <span>+ в точное время</span>
+              </label>
+            </div>
+
+            <div class="reminder-toolbar-divider"></div>
+
+            <!-- Повторение -->
+            <div class="reminder-toolbar-group">
+              <span class="reminder-toolbar-label">🔁 Повтор:</span>
+              <select id="new-reminder-repeat" class="input-select reminder-repeat-select">
+                <option value="none">Однократно</option>
+                <option value="daily">Каждый день</option>
+                <option value="weekdays">По будням (Пн-Пт)</option>
+                <option value="weekly">Раз в неделю</option>
+                <option value="monthly">Раз в месяц</option>
+              </select>
+            </div>
+
+            <!-- Кнопка создания -->
+            <button type="button" class="btn-primary btn-add-reminder" onclick="App.addNewReminder()">
+              <span>🔔</span> Создать напоминание
+            </button>
+          </div>
+        </div>
+
+        <!-- Контейнер карточек напоминаний -->
+        <div class="reminders-list-container" id="reminders-list">
+          <!-- Рендерится через JS -->
+        </div>
+
+        <!-- Пустое состояние -->
+        <div class="empty-state" id="reminders-empty-state" style="display: none; padding: 40px 0;">
+          <div class="empty-icon" style="font-size: 40px; margin-bottom: 10px;">🔔</div>
+          <div class="empty-title" id="reminders-empty-title" style="font-size: 16px; font-weight: 700;">Напоминаний нет</div>
+          <div class="empty-desc" style="color: var(--text-muted); font-size: 13.5px; max-width: 420px; text-align: center; margin: 6px auto 0;">Создайте напоминание сверху, чтобы планер вовремя просигналил вам звуком и окном будильника.</div>
+        </div>
+      </div>
+
+      <!-- РЕЖИМ 6: Справка и руководство пользователя -->
+      <div class="view-panel" id="view-help" style="display: none;">
+        <header class="content-header">
+          <div class="header-titles">
+            <h1 class="view-title">📖 Справка и руководство пользователя</h1>
+            <p class="view-subtitle">Подробная интерактивная инструкция по всем возможностям, горячим клавишам и облачной синхронизации</p>
+          </div>
+          <div class="header-actions">
+            <div class="search-box" style="width: 260px;">
+              <input type="text" id="help-search-input" placeholder="🔍 Поиск по справке..." oninput="App.onSearchHelp(this.value)">
+            </div>
+          </div>
+        </header>
+
+        <!-- Быстрая навигация по темам справки -->
+        <div class="help-quick-nav">
+          <button class="btn-subtle btn-help-nav" onclick="App.scrollToHelpTopic('topic-tasks')">📋 Задачи и папки</button>
+          <button class="btn-subtle btn-help-nav" onclick="App.scrollToHelpTopic('topic-reminders')">🔔 Напоминания</button>
+          <button class="btn-subtle btn-help-nav" onclick="App.scrollToHelpTopic('topic-timer')">⏱️ Таймеры и отдых</button>
+          <button class="btn-subtle btn-help-nav" onclick="App.scrollToHelpTopic('topic-hotkeys')">⌨️ Горячие клавиши</button>
+          <button class="btn-subtle btn-help-nav" onclick="App.scrollToHelpTopic('topic-webdav')">☁️ Облако WebDAV</button>
+          <button class="btn-subtle btn-help-nav" onclick="App.scrollToHelpTopic('topic-backup')">💾 Сохранность и бэкапы</button>
+          <button class="btn-subtle btn-help-nav" onclick="App.scrollToHelpTopic('topic-appearance')">🎨 Темы и звуки</button>
+          <button class="btn-subtle btn-help-nav" onclick="App.scrollToHelpTopic('topic-timeline')" style="font-weight: 700; color: var(--accent-primary);">⏱️ Тайм-блокинг 🌟</button>
+          <button class="btn-subtle btn-help-nav" onclick="App.scrollToHelpTopic('topic-workspace')" style="font-weight: 700; color: var(--accent-primary);">🖥️ Настройка колонок и Меню 🌟</button>
+        </div>
+
+        <!-- Контейнер карточек руководства -->
+        <div class="help-topics-container" id="help-topics-container">
+
+          <!-- Раздел 1: Задачи и папки -->
+          <div class="help-card" id="topic-tasks">
+            <div class="help-card-header" onclick="App.toggleHelpCard(this)">
+              <div class="help-header-title">
+                <span class="help-icon">📋</span>
+                <div>
+                  <h3 class="help-title">1. Управление задачами, проектами и подпунктами</h3>
+                  <p class="help-desc">Создание дел, подпункты (чек-листы), цветовая маркировка, теги и папки</p>
+                </div>
+              </div>
+              <span class="help-toggle-arrow">▾</span>
+            </div>
+            <div class="help-card-body">
+              <div class="help-section-item">
+                <h5>➕ Быстрое создание задач</h5>
+                <p>В верхней части списка активных дел расположена строка добавления. Введите текст задачи и нажмите <kbd>Enter</kbd>. Также можно нажать горячие клавиши <kbd>Ctrl</kbd> + <kbd>N</kbd> в любой момент.</p>
+              </div>
+              <div class="help-section-item">
+                <h5>☑️ Подпункты (Чек-листы)</h5>
+                <p>Кликните по задаче (или нажмите иконку ✏️), чтобы добавить подробное описание и список пошаговых подпунктов. При отметке подпунктов прямо на карточке задачи отображается полоса прогресса (например, <em>«Выполнено 2/4»</em>).</p>
+              </div>
+              <div class="help-section-item">
+                <h5>🏷️ Теги и хештеги (#)</h5>
+                <p>Вы можете писать теги прямо в названии задачи: например, <code>#срочно</code>, <code>#клиент</code>, <code>#покупки</code>. Программа автоматически сформирует облако тегов в боковой панели, позволяя фильтровать задачи в 1 клик.</p>
+              </div>
+              <div class="help-section-item">
+                <h5>📁 Разделы (Листы) и неограниченные папки</h5>
+                <p>Слева в боковом меню вы можете создавать новые Разделы (кнопка <em>«➕ Новый раздел»</em>) и папки внутри них. Поддерживается создание подпапок любой глубины вложенности.</p>
+              </div>
+              <div class="help-section-item">
+                <h5>🔁 Регулярные (повторяющиеся) задачи</h5>
+                <p>Для регулярных рутинных дел (оплата счетов, еженедельные отчеты, тренировки) выберите периодичность: <em>Каждый день</em>, <em>По будням (Пн-Пт)</em>, <em>Раз в неделю</em>, <em>Раз в месяц</em> или <em>Раз в год</em>. При нажатии «✓ Выполнено» текущая задача уходит в архив с сохраненным временем, а на следующий цикл <strong>автоматически создается свежая задача</strong> с чистыми чек-листами!</p>
+              </div>
+              <div class="help-section-item">
+                <h5>📎 Вложения, веб-ссылки и скриншоты (Ctrl + V)</h5>
+                <p>В окне задачи можно прикреплять:
+                  <ul>
+                    <li><strong>🌐 Ссылки на сайты</strong>: клик по бейджу открывает страницу в браузере;</li>
+                    <li><strong>📁 Папки и файлы на диске</strong>: клик открывает проводник Windows в нужной директории;</li>
+                    <li><strong>🖼️ Скриншоты из буфера</strong>: скопируйте скриншот и нажмите <kbd>Ctrl</kbd> + <kbd>V</kbd> прямо в окне задачи. Клик по миниатюре откроет полноразмерный просмотрщик.</li>
+                  </ul>
+                </p>
+              </div>
+              <div class="help-section-item">
+                <h5>✋ Перетаскивание (Drag & Drop)</h5>
+                <p>Захватите карточку задачи за иконку с шестью точками и перетащите её вверх или вниз для изменения приоритета, либо перетащите в любую папку в сайдбаре.</p>
+              </div>
+              <div class="help-section-item">
+                <h5>🔍 Фильтры и сортировка в «Задачи на сегодня»</h5>
+                <p>В верхней панели раздела «Сегодня» доступны выпадающие фильтры: <strong>Категория</strong> (выбор конкретного раздела или всех сразу), <strong>Папка/Проект</strong> и <strong>Сортировка</strong> (по порядку, по времени создания или по времени расписания). Кнопка <code>↺ Сброс</code> возвращает показ всех дел.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Раздел 2: Автономные напоминания -->
+          <div class="help-card" id="topic-reminders">
+            <div class="help-card-header" onclick="App.toggleHelpCard(this)">
+              <div class="help-header-title">
+                <span class="help-icon">🔔</span>
+                <div>
+                  <h3 class="help-title">2. Автономные напоминания и Будильники</h3>
+                  <p class="help-desc">Памятки без времени, точные будильники, периодические повторы и архив</p>
+                </div>
+              </div>
+              <span class="help-toggle-arrow">▾</span>
+            </div>
+            <div class="help-card-body">
+              <div class="help-section-item">
+                <h5>🎯 Зачем нужен раздел «Напоминания»?</h5>
+                <p>Чтобы мелкие или разовые дела (например, <em>«Позвонить врачу»</em>, <em>«Выпить витамины»</em>, <em>«Забрать посылку»</em>) не захламляли ваши списки рабочих проектов. Напоминания живут в отдельном разделе <code>🔔 Напоминания</code>.</p>
+              </div>
+              <div class="help-section-item">
+                <h5>📅 Без точного времени vs ⏰ Со временем (Будильник)</h5>
+                <ul>
+                  <li><strong>Без точного времени (по умолчанию)</strong>: напоминание сохраняется как памятка на выбранную дату (отображается как <em>«📅 Сегодня (в течение дня)»</em>). Оно не пищит посреди важного звонка, но всегда на виду в списке дел на сегодня.</li>
+                  <li><strong>Со временем</strong>: включите галочку <em>«⏰ Точное время (Будильник)»</em> и укажите час/минуты. Ровно в назначенное время планер подаст громкий звуковой сигнал, покажет окно будильника и выведет системное уведомление Windows.</li>
+                </ul>
+              </div>
+              <div class="help-section-item">
+                <h5>🔁 Повторяющиеся напоминания</h5>
+                <p>Вы можете выбрать периодичность: <em>«Каждый день»</em>, <em>«По будням (Пн-Пт)»</em>, <em>«Раз в неделю»</em> или <em>«Раз в месяц»</em>. При нажатии «Выполнено» дата автоматически сдвигается на следующий цикл!</p>
+              </div>
+              <div class="help-section-item">
+                <h5>🏆 Отображение в общем Архиве</h5>
+                <p>По умолчанию завершенные напоминания хранятся во вкладке <em>«🏆 История»</em> внутри раздела напоминаний. Если вы хотите видеть их также в общем архиве «Выполнено» — включите галочку в Настройках во вкладке <strong>«📋 Задачи»</strong>.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Раздел 3: Таймеры и отдых -->
+          <div class="help-card" id="topic-timer">
+            <div class="help-card-header" onclick="App.toggleHelpCard(this)">
+              <div class="help-header-title">
+                <span class="help-icon">⏱️</span>
+                <div>
+                  <h3 class="help-title">3. Учет времени, Таймеры и Перерывы (☕)</h3>
+                  <p class="help-desc">Поминутный трекинг работы, плавающий виджет, учет отдыха и аналитика</p>
+                </div>
+              </div>
+              <span class="help-toggle-arrow">▾</span>
+            </div>
+            <div class="help-card-body">
+              <div class="help-section-item">
+                <h5>▶ Запуск таймера на задаче</h5>
+                <p>Нажмите зеленую кнопку <code>▶</code> на любой задаче. Пойдет прямой отсчет времени. Вы можете одновременно запускать или переключать таймеры на разных задачах.</p>
+              </div>
+              <div class="help-section-item">
+                <h5>☕ Учет перерывов и отдыха</h5>
+                <p>Нажмите <kbd>Ctrl</kbd> + <kbd>B</kbd> или кнопку <em>«☕ Перерыв»</em> в шапке окна. Время отдыха будет записано отдельно от рабочего, что позволяет объективно оценивать баланс работы и восстановления.</p>
+              </div>
+              <div class="help-section-item">
+                <h5>📊 Статистика времени и график дня</h5>
+                <p>В разделе <code>📊 Статистика времени</code> доступен поминутный график дня, процент продуктивности, распределение времени по проектам за день, неделю или месяц, а также ручное добавление пропущенных сессий.</p>
+              </div>
+              <div class="help-section-item">
+                <h5>↺ Сброс набежавшего времени таймера</h5>
+                <p>Если вы завершили или остановили работу по задаче, но хотите обнулить счетчик или начать отсчет заново с нуля — на карточке задачи рядом со временем доступна кнопка <code>↺</code> (Сброс), которая обнуляет текущий таймер.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Раздел 4: Горячие клавиши -->
+          <div class="help-card" id="topic-hotkeys">
+            <div class="help-card-header" onclick="App.toggleHelpCard(this)">
+              <div class="help-header-title">
+                <span class="help-icon">⌨️</span>
+                <div>
+                  <h3 class="help-title">4. Горячие клавиши и Глобальный быстрый ввод</h3>
+                  <p class="help-desc">Мгновенный ввод задачи из любого места Windows и горячие клавиши программы</p>
+                </div>
+              </div>
+              <span class="help-toggle-arrow">▾</span>
+            </div>
+            <div class="help-card-body">
+              <div class="help-section-item">
+                <h5>⚡ Глобальный быстрый ввод (Global Hotkey)</h5>
+                <p>Находясь в абсолютно любой программе Windows (в браузере, Excel, игре), нажмите <kbd>Alt</kbd> + <kbd>Space</kbd> (или ваше настроенное сочетание). Поверх всех окон откроется компактное окно ввода задачи. Введите текст, выберите дату/проект и нажмите <kbd>Enter</kbd> — окно мгновенно закроется, а задача сохранится и синхронизируется в облако.</p>
+              </div>
+              <div class="help-section-item">
+                <h5>🛠 Настройка сочетания клавиш</h5>
+                <p>Откройте <code>⚙️ Настройки</code> ➔ вкладка <code>⌨️ Горячие клавиши</code>. Нажмите <em>«Задать свою комбинацию»</em> и просто нажмите нужные клавиши на клавиатуре.</p>
+              </div>
+              <div class="help-section-item">
+                <h5>📋 Клавиши внутри программы</h5>
+                <table class="help-table">
+                  <tr><td><kbd>Ctrl</kbd> + <kbd>N</kbd></td><td>Быстрое добавление новой задачи</td></tr>
+                  <tr><td><kbd>Ctrl</kbd> + <kbd>F</kbd></td><td>Фокус на строку поиска</td></tr>
+                  <tr><td><kbd>Ctrl</kbd> + <kbd>B</kbd></td><td>Начать / завершить перерыв (☕)</td></tr>
+                  <tr><td><kbd>Ctrl</kbd> + <kbd>S</kbd></td><td>Принудительная синхронизация с облаком</td></tr>
+                  <tr><td><kbd>Ctrl</kbd> + <kbd>R</kbd></td><td>Перезагрузить интерфейс</td></tr>
+                  <tr><td><kbd>Esc</kbd></td><td>Закрыть активное модальное окно</td></tr>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Раздел 5: Облачная синхронизация WebDAV -->
+          <div class="help-card" id="topic-webdav">
+            <div class="help-card-header" onclick="App.toggleHelpCard(this)">
+              <div class="help-header-title">
+                <span class="help-icon">☁️</span>
+                <div>
+                  <h3 class="help-title">5. Облачная синхронизация WebDAV (Mail.ru и др.)</h3>
+                  <p class="help-desc">Как настроить автоматическую синхронизацию между вашим ПК и ноутбуком</p>
+                </div>
+              </div>
+              <span class="help-toggle-arrow">▾</span>
+            </div>
+            <div class="help-card-body">
+              <div class="help-section-item">
+                <h5>🚀 Пошаговая настройка для Облака Mail.ru</h5>
+                <ol class="help-steps-list">
+                  <li>Зайдите в ваш почтовый ящик Mail.ru в браузере.</li>
+                  <li>Перейдите в <strong>Настройки ➔ Безопасность ➔ «Пароли для внешних приложений»</strong>.</li>
+                  <li>Нажмите <em>«Добавить»</em>, укажите имя (например, <code>Планер</code>) и скопируйте созданный системой пароль.</li>
+                  <li>В приложении Планер откройте <code>⚙️ Настройки</code> ➔ вкладка <code>☁️ Облако WebDAV</code>.</li>
+                  <li>Введите ваш логин (почту <code>ваша_почта@mail.ru</code>), вставьте скопированный пароль приложения и нажмите <strong>«💾 Сохранить и проверить связь»</strong>.</li>
+                </ol>
+              </div>
+              <div class="help-section-item">
+                <h5>🔄 Как работает авто-синхронизация?</h5>
+                <p>При любом изменении задачи (создание, отметка, изменение таймера, редактирование) программа автоматически через 2.5 секунды отправляет свежие данные в защищенный файл <code>tasks_data.json</code> в облаке. При работе с двух компьютеров система плавно объединяет изменения без потери данных.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Раздел 6: Сохранность данных -->
+          <div class="help-card" id="topic-backup">
+            <div class="help-card-header" onclick="App.toggleHelpCard(this)">
+              <div class="help-header-title">
+                <span class="help-icon">💾</span>
+                <div>
+                  <h3 class="help-title">6. Сохранность данных, Резервные копии и Экспорт</h3>
+                  <p class="help-desc">Локальное хранение, экспорт в JSON и безопасность</p>
+                </div>
+              </div>
+              <span class="help-toggle-arrow">▾</span>
+            </div>
+            <div class="help-card-body">
+              <div class="help-section-item">
+                <h5>🔒 Где хранятся данные?</h5>
+                <p>Все ваши задачи, проекты, история времени и напоминания хранятся локально на вашем компьютере. Приложение работает на 100% автономно даже без интернета.</p>
+              </div>
+              <div class="help-section-item">
+                <h5>📦 Экспорт и Импорт в 1 клик</h5>
+                <p>В окне Настроек во вкладке <code>💾 Бэкапы</code> вы можете в любой момент нажать кнопку <em>«Экспортировать базу в JSON»</em> для сохранения архивного файла на флешку или диск, а также восстановить базу из сохраненного файла.</p>
+              </div>
+              <div class="help-section-item">
+                <h5>🖥️ Системный трей и Автозагрузка Windows</h5>
+                <p>При нажатии на крестик окно сворачивается в системный трей (к часам): таймеры продолжают вести учет времени, а будильники всегда срабатывают. Правый клик по иконке в трее открывает быстрое меню (Быстрый ввод задачи, Перерыв, Синхронизация). В Настройках во вкладке <code>💾 Бэкапы</code> можно включить автозапуск программы при старте Windows.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Раздел 7: Темы и Звуки -->
+          <div class="help-card" id="topic-appearance">
+            <div class="help-card-header" onclick="App.toggleHelpCard(this)">
+              <div class="help-header-title">
+                <span class="help-icon">🎨</span>
+                <div>
+                  <h3 class="help-title">7. Темы оформления и Звуковые сигналы</h3>
+                  <p class="help-desc">Переключение визуальных тем и выбор мелодий будильника</p>
+                </div>
+              </div>
+              <span class="help-toggle-arrow">▾</span>
+            </div>
+            <div class="help-card-body">
+              <div class="help-section-item">
+                <h5>🎨 Выбор темы оформления</h5>
+                <p>В Настройках во вкладке <code>🎨 Темы</code> доступны три варианта: <strong>Темная графитовая</strong> (идеальна для работы вечером), <strong>Светлая минималистичная</strong> и <strong>Тетрадь в клеточку</strong> (уютный рукописный стиль с разлинованным фоном).</p>
+              </div>
+              <div class="help-section-item">
+                <h5>🔔 Звуки будильника</h5>
+                <p>Во вкладке <code>🔔 Звуки</code> можно выбрать мелодию будильника: <em>Электронный писк</em>, <em>Колокольчики</em>, <em>Энергичный импульс</em>, <em>Релакс перезвон</em> или <em>Радар</em>, а также протестировать громкость кнопкой <em>«▶ Тест»</em>.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Раздел 8: Тайм-блокинг и Расписание -->
+          <div class="help-card" id="topic-timeline">
+            <div class="help-card-header" onclick="App.toggleHelpCard(this)">
+              <div class="help-header-title">
+                <span class="help-icon">⏱️</span>
+                <div>
+                  <h3 class="help-title">8. Интерактивный Тайм-блокинг и Расписание 🌟</h3>
+                  <p class="help-desc">Визуальное планирование дня и недели по часам, Drag & Drop, 15-мин сетка и поповер интервалов</p>
+                </div>
+              </div>
+              <span class="help-toggle-arrow">▾</span>
+            </div>
+            <div class="help-card-body">
+              <div class="help-section-item">
+                <h5>🎯 Зачем нужен тайм-блокинг?</h5>
+                <p>Тайм-блокинг позволяет распределить запланированные задачи по конкретным часам рабочего дня без накладок (как в Akiflow и Sunsama). Вы наглядно видите загрузку дня, свободные окна времени и защищаете себя от перегрузок.</p>
+              </div>
+              <div class="help-section-item">
+                <h5>⭐ Сплит-режим в «Задачи на сегодня»</h5>
+                <p>В шапке раздела «Задачи на сегодня» есть переключатель:
+                  <ul>
+                    <li><strong>☰ Список</strong> — классический режим компактного списка дел.</li>
+                    <li><strong>⏱️ Со шкалой времени</strong> — сплит-экран: слева отображается список дел на сегодня, а справа — интерактивная шкала рабочего дня с минутной сеткой.</li>
+                  </ul>
+                  Выбранный режим запоминается программой автоматически.
+                </p>
+              </div>
+              <div class="help-section-item">
+                <h5>✋ Перетаскивание задач на шкалу (Drag & Drop)</h5>
+                <p>Зажмите карточку задачи левой кнопкой мыши и перетащите её на нужный час на шкале времени:
+                  <ul>
+                    <li>Сетка шкалы работает в соотношении <strong>1 пиксель = 1 минута</strong> (высота часа = 60px).</li>
+                    <li>Внутри часа отображаются 4 пунктирные 15-минутки (:00, :15, :30, :45).</li>
+                    <li>При наведении курсора активный 15-минутный интервал подсвечивается и выводится подсказка времени (например, <em>⏱️ 14:15</em> или <em>⏱️ 14:30</em>), поэтому вы точно знаете, куда попадет задача до отпускания мыши.</li>
+                  </ul>
+                </p>
+              </div>
+              <div class="help-section-item">
+                <h5>⏱️ Всплывающий поповер точной настройки интервала (Quick Popover)</h5>
+                <p>При сбросе задачи на шкалу, при клике по времени задачи на блоке или по бейджу <code>⏱️ Время</code> в общем списке открывается плавающее окно:
+                  <ul>
+                    <li><strong>Начало</strong>: выпадающий список от 00:00 до 23:45 с шагом 15 минут.</li>
+                    <li><strong>Окончание</strong>: выпадающий список от 00:15 до 24:00 с шагом 15 минут.</li>
+                    <li><strong>Быстрые кнопки длительности в 1 клик</strong>: <code>15м</code>, <code>30м</code>, <code>45м</code>, <code>1ч</code>, <code>1.5ч</code>, <code>2ч</code>, <code>3ч</code>.</li>
+                    <li><strong>Убрать со шкалы</strong>: снимает задачу из расписания и возвращает её в обычный список.</li>
+                    <li><strong>Сохранить ✓</strong>: мгновенно фиксирует интервал и обновляет график.</li>
+                  </ul>
+                </p>
+              </div>
+              <div class="help-section-item">
+                <h5>📅 Раздел «Расписание (Тайм-блокинг)» в боковом меню</h5>
+                <p>Полноэкранный центр управления временем:
+                  <ul>
+                    <li><strong>[ 1 День ]</strong> — подробная шкала выбранного дня с точностью до минут.</li>
+                    <li><strong>[ 📅 7 Дней (Неделя) ]</strong> — 7-колоночный недельный календарь-сетка (Пн — Вс) для распределения дел на неделю вперед.</li>
+                    <li><strong>📥 Нераспределенные задачи (Беклог)</strong> слева — список всех активных дел без точного времени, откуда их можно перетаскивать на любой день и час сетки.</li>
+                    <li><strong>Фильтры</strong> по категории (разделу), папке/проекту и чекбокс завершенных дел.</li>
+                    <li><strong>Стрелки периодов</strong>: <code>◀</code> <code>Сегодня</code> <code>▶</code> для быстрого перелистывания дней и недель.</li>
+                  </ul>
+                </p>
+              </div>
+              <div class="help-section-item">
+                <h5>🚀 Умный авто-охват шкалы (Zero-Config Auto-Fit)</h5>
+                <p>Вам не требуется вручную настраивать диапазон часов «От и До»:
+                  <ul>
+                    <li>Шкала сама анализирует текущий час и все запланированные дела дня и отображает только нужный интервал. Если вы работаете ночью (например, в 03:00 или 05:00), шкала мягко раскроет ночные часы без пустого прокручивания.</li>
+                    <li>Кнопки <strong>▲ Раньше</strong> (вверху) и <strong>▼ Позже</strong> (внизу) раскрывают шкалу на дополнительные часы в 1 клик.</li>
+                    <li>Кнопка <strong>🕒 24ч</strong> разворачивает полный суточный цикл (00:00 — 24:00).</li>
+                    <li>Кнопка <strong>🔴 К «Сейчас»</strong> мягко центрирует экран на текущей красной линии времени.</li>
+                  </ul>
+                </p>
+              </div>
+              <div class="help-section-item">
+                <h5>↕ Изменение длительности задачи мышью (Resize)</h5>
+                <p>Наведите курсор на нижнюю кромку любого блока на шкале (курсор превратится в стрелочку <code>↕</code>), зажмите и потяните вниз или вверх. Длительность задачи будет плавно меняться с шагом 15 минут, автоматически пересчитывая время окончания.</p>
+              </div>
+              <div class="help-section-item">
+                <h5>▶ Запуск таймера прямо из расписания</h5>
+                <p>На каждом блоке шкалы есть кнопка <code>▶</code>. Кликнув по ней, вы мгновенно запускаете учет времени задачи прямо на шкале без перехода в другие разделы программы.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Раздел 9: Настройка колонок и Сайдбар -->
+          <div class="help-card" id="topic-workspace">
+            <div class="help-card-header" onclick="App.toggleHelpCard(this)">
+              <div class="help-header-title">
+                <span class="help-icon">🖥️</span>
+                <div>
+                  <h3 class="help-title">9. Настройка колонок мышью и Сворачивание меню 🌟</h3>
+                  <p class="help-desc">Регулировка ширины задач и шкалы времени мышью, авто-сохранение размеров и скрытие сайдбара</p>
+                </div>
+              </div>
+              <span class="help-toggle-arrow">▾</span>
+            </div>
+            <div class="help-card-body">
+              <div class="help-section-item">
+                <h5>↔ Интерактивная настройка ширины колонок мышью (Сплиттеры)</h5>
+                <p>Вы можете свободно настраивать ширину списков и расписания так, как удобно именно вам:
+                  <ul>
+                    <li><strong>В «Задачи на сегодня» (со шкалой)</strong>: между левым списком задач и правой шкалой расположен вертикальный разделитель. Наведите мышь (курсор станет <code>↔</code>) и потяните:
+                      <ul>
+                        <li>Влево — шкала времени станет шире, а список задач компактнее.</li>
+                        <li>Вправо — список задач получит максимальное пространство, а шкала станет уже.</li>
+                      </ul>
+                    </li>
+                    <li><strong>В «Расписании (Тайм-блокинг)»</strong>: разделитель между панелью беклога и сеткой расписания позволяет сузить или расширить список нераспределенных дел от 200px до 750px.</li>
+                    <li><strong>Автоматическое сохранение</strong>: выбранная вами ширина колонок надежно сохраняется в настройках и восстанавливается при любых переходах между экранами и при перезапуске программы.</li>
+                  </ul>
+                </p>
+              </div>
+              <div class="help-section-item">
+                <h5>◀ Сворачивание и разворачивание боковой панели (сайдбара)</h5>
+                <p>Для полного погружения в планирование без отвлекающих деталей:
+                  <ul>
+                    <li>В шапке бокового меню (рядом с кнопкой <em>«⚡ Ввод»</em>) нажмите кнопку <strong>◀</strong>. Боковое меню плавно скроется, а рабочая область задач и расписания займет <strong>100% ширины экрана</strong>.</li>
+                    <li>Чтобы вернуть меню обратно, просто нажмите аккуратную плавающую кнопку <strong>☰ Меню</strong> в верхнем левом углу окна.</li>
+                    <li>Состояние боковой панели (свернута/развернута) также автоматически сохраняется в программе.</li>
+                  </ul>
+                </p>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </main>
+
+    <!-- ПЛАВАЮЩИЙ ВИДЖЕТ ТАЙМЕРОВ (СНИЗУ СПРАВА) -->
+    <div class="floating-timer-dock" id="floating-timer-dock" style="display: none;">
+      <div class="timer-dock-header" onclick="App.toggleTimerDockExpand()">
+        <div class="dock-title-row">
+          <span class="pulse-dot"></span>
+          <span class="dock-title" id="dock-active-count">⏱ Таймер (1)</span>
+        </div>
+        <button class="btn-icon-sm" id="btn-toggle-dock" title="Свернуть/Развернуть">▾</button>
+      </div>
+      
+      <div class="timer-dock-items" id="timer-dock-items">
+        <!-- Карточки запущенных задач -->
+      </div>
+    </div>
+
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО: Создание / Редактирование проекта -->
+  <div class="modal-overlay" id="modal-project" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modal-project-title">Создать проект</h3>
+        <button class="btn-close" onclick="App.closeModal('modal-project')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="modal-project-edit-id" value="">
+        <input type="hidden" id="modal-project-parent-id" value="">
+        <div class="form-group">
+          <label>Раздел (Лист):</label>
+          <select id="modal-project-section-select" class="input-select modal-input" onchange="App.populateParentProjectSelects()"></select>
+        </div>
+        <div class="form-group" id="modal-project-parent-group">
+          <label>Родительская папка (куда вложить):</label>
+          <select id="modal-project-parent-select" class="input-select modal-input">
+            <option value="">📁 Корень раздела (Основная папка)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Иконка проекта (выберите или введите любой смайлик):</label>
+          <div class="emoji-picker-container">
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <input type="text" id="modal-project-icon" class="modal-input emoji-main-input" value="📂" maxlength="6">
+              <input type="text" class="modal-input emoji-search-input" placeholder="🔍 Поиск эмодзи (работа, дом, спорт, авто...)" oninput="App.onSearchEmoji(this.value, 'project-emoji-grid', 'modal-project-icon')">
+            </div>
+            <div class="emoji-grid" id="project-emoji-grid"></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="modal-project-name" style="cursor: pointer;" onclick="document.getElementById('modal-project-name')?.focus()">Название проекта/папки:</label>
+          <input type="text" id="modal-project-name" class="modal-input" placeholder="Например: Проект Ремонт или Клиент X" onkeydown="if(event.key==='Enter') App.saveProjectModal()" onclick="this.focus()" onmousedown="this.focus()">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-subtle btn-delete-modal" id="btn-delete-project-modal" style="display: none; margin-right: auto;" onclick="App.deleteProjectFromModal()">Удалить проект</button>
+        <button type="button" class="btn-subtle" onclick="App.closeModal('modal-project')">Отмена</button>
+        <button type="button" class="btn-primary" onclick="App.saveProjectModal()">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО: Создание / Редактирование раздела -->
+  <div class="modal-overlay" id="modal-section" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modal-section-title">Создать новый раздел</h3>
+        <button class="btn-close" onclick="App.closeModal('modal-section')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="modal-section-edit-id" value="">
+        <div class="form-group">
+          <label>Иконка раздела (выберите или введите любой смайлик):</label>
+          <div class="emoji-picker-container">
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <input type="text" id="modal-section-icon" class="modal-input emoji-main-input" value="📌" maxlength="6">
+              <input type="text" class="modal-input emoji-search-input" placeholder="🔍 Поиск эмодзи (работа, дом, спорт, авто...)" oninput="App.onSearchEmoji(this.value, 'section-emoji-grid', 'modal-section-icon')">
+            </div>
+            <div class="emoji-grid" id="section-emoji-grid"></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="modal-section-name" style="cursor: pointer;" onclick="document.getElementById('modal-section-name')?.focus()">Название раздела:</label>
+          <input type="text" id="modal-section-name" class="modal-input" placeholder="Например: Учеба, Хобби..." onkeydown="if(event.key==='Enter') App.saveSectionModal()" onclick="this.focus()" onmousedown="this.focus()">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-subtle btn-delete-modal" id="btn-delete-section-modal" style="display: none; margin-right: auto;" onclick="App.deleteSectionFromModal()">Удалить раздел</button>
+        <button type="button" class="btn-subtle" onclick="App.closeModal('modal-section')">Отмена</button>
+        <button type="button" class="btn-primary" onclick="App.saveSectionModal()">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО: Редактирование напоминания -->
+  <div class="modal-overlay" id="modal-reminder" style="display: none;">
+    <div class="modal-card" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3 class="modal-title">🔔 Редактировать напоминание</h3>
+        <button class="btn-close" onclick="App.closeModal('modal-reminder')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="modal-reminder-id" value="">
+        <div class="form-group">
+          <label for="modal-reminder-text" style="cursor: pointer;" onclick="document.getElementById('modal-reminder-text')?.focus()">Текст напоминания:</label>
+          <input type="text" id="modal-reminder-text" class="modal-input" placeholder="О чем напомнить..." onkeydown="if(event.key==='Enter') App.saveReminderModal()" onclick="this.focus()" onmousedown="this.focus()">
+        </div>
+
+        <div class="form-group">
+          <label for="modal-reminder-date" style="cursor: pointer;" onclick="document.getElementById('modal-reminder-date')?.focus()">📅 Дата выполнения:</label>
+          <input type="date" id="modal-reminder-date" class="modal-input" onclick="this.focus()" onmousedown="this.focus()">
+        </div>
+
+        <div class="form-group" style="background-color: var(--bg-input); padding: 10px 12px; border-radius: var(--radius-sm); border: 1px dashed var(--border-color);">
+          <label class="toggle-row" style="margin: 0; cursor: pointer; user-select: none;">
+            <input type="checkbox" id="modal-reminder-has-time" onchange="App.toggleModalReminderTime(this.checked)">
+            <span style="font-weight: 600; font-size: 13px;">⏰ Включить точное время (Будильник)</span>
+          </label>
+          <div id="modal-reminder-time-wrap" style="display: none; align-items: center; gap: 8px; margin-top: 8px;">
+            <label style="font-size: 12.5px; color: var(--text-secondary); margin: 0;">Время срабатывания:</label>
+            <input type="time" id="modal-reminder-time" class="modal-input" style="width: 120px;" value="12:00">
+          </div>
+          <div id="modal-reminder-advance-wrap" style="display: none; flex-direction: column; gap: 6px; margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border-color);">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <label style="font-size: 12.5px; color: var(--text-secondary); margin: 0; white-space: nowrap;">⏳ Опережение:</label>
+              <select id="modal-reminder-advance" class="input-select modal-input" style="flex: 1;">
+                <option value="0">В момент времени (вовремя)</option>
+                <option value="5">За 5 минут</option>
+                <option value="10">За 10 минут</option>
+                <option value="15">За 15 минут</option>
+                <option value="30">За 30 минут</option>
+                <option value="60">За 1 час</option>
+                <option value="120">За 2 часа</option>
+                <option value="1440">За 1 день (24 часа)</option>
+              </select>
+            </div>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); cursor: pointer; user-select: none; margin-top: 2px;">
+              <input type="checkbox" id="modal-reminder-advance-also-exact" checked>
+              <span>Напомнить повторно и в точный момент наступления</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>🔁 Повторение:</label>
+          <select id="modal-reminder-repeat" class="input-select modal-input">
+            <option value="none">Однократно</option>
+            <option value="daily">Каждый день</option>
+            <option value="weekdays">По будням (Пн-Пт)</option>
+            <option value="weekly">Раз в неделю</option>
+            <option value="monthly">Раз в месяц</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Цветовая метка:</label>
+          <div class="color-palette-selector" id="modal-reminder-color-palette">
+            <button type="button" class="color-chip active" data-color="" onclick="App.selectReminderModalColor('')" style="background:#6b7280;" title="Без цвета">✕</button>
+            <button type="button" class="color-chip" data-color="#ef4444" onclick="App.selectReminderModalColor('#ef4444')" style="background:#ef4444;" title="Красный"></button>
+            <button type="button" class="color-chip" data-color="#f97316" onclick="App.selectReminderModalColor('#f97316')" style="background:#f97316;" title="Оранжевый"></button>
+            <button type="button" class="color-chip" data-color="#10b981" onclick="App.selectReminderModalColor('#10b981')" style="background:#10b981;" title="Зеленый"></button>
+            <button type="button" class="color-chip" data-color="#3b82f6" onclick="App.selectReminderModalColor('#3b82f6')" style="background:#3b82f6;" title="Синий"></button>
+            <button type="button" class="color-chip" data-color="#8b5cf6" onclick="App.selectReminderModalColor('#8b5cf6')" style="background:#8b5cf6;" title="Фиолетовый"></button>
+          </div>
+          <input type="hidden" id="modal-reminder-color" value="">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-subtle btn-delete-modal" style="margin-right: auto;" onclick="App.deleteReminderFromModal()">🗑️ Удалить</button>
+        <button type="button" class="btn-subtle" onclick="App.closeModal('modal-reminder')">Отмена</button>
+        <button type="button" class="btn-primary" onclick="App.saveReminderModal()">💾 Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО: Редактирование задачи -->
+  <div class="modal-overlay" id="modal-edit-task" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">✏️ Редактировать задачу</h3>
+        <button class="btn-close" onclick="App.closeModal('modal-edit-task')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="modal-task-edit-id" value="">
+        <div class="form-group">
+          <label for="modal-task-name" style="cursor: pointer;" onclick="document.getElementById('modal-task-name')?.focus()">Название задачи:</label>
+          <input type="text" id="modal-task-name" class="modal-input" placeholder="Текст задачи..." onkeydown="if(event.key==='Enter') App.saveTaskModal()" onclick="this.focus()" onmousedown="this.focus()">
+        </div>
+
+        <div class="form-group">
+          <label>Цвет задачи:</label>
+          <div class="color-palette-selector">
+            <button type="button" class="color-chip active" data-color="" onclick="App.selectTaskModalColor('')" style="background:#6b7280;" title="Без цвета">✕</button>
+            <button type="button" class="color-chip" data-color="#ef4444" onclick="App.selectTaskModalColor('#ef4444')" style="background:#ef4444;" title="Красный"></button>
+            <button type="button" class="color-chip" data-color="#f97316" onclick="App.selectTaskModalColor('#f97316')" style="background:#f97316;" title="Оранжевый"></button>
+            <button type="button" class="color-chip" data-color="#eab308" onclick="App.selectTaskModalColor('#eab308')" style="background:#eab308;" title="Желтый"></button>
+            <button type="button" class="color-chip" data-color="#10b981" onclick="App.selectTaskModalColor('#10b981')" style="background:#10b981;" title="Зеленый"></button>
+            <button type="button" class="color-chip" data-color="#3b82f6" onclick="App.selectTaskModalColor('#3b82f6')" style="background:#3b82f6;" title="Синий"></button>
+            <button type="button" class="color-chip" data-color="#8b5cf6" onclick="App.selectTaskModalColor('#8b5cf6')" style="background:#8b5cf6;" title="Фиолетовый"></button>
+            <button type="button" class="color-chip" data-color="#ec4899" onclick="App.selectTaskModalColor('#ec4899')" style="background:#ec4899;" title="Розовый"></button>
+          </div>
+          <input type="hidden" id="modal-task-color" value="">
+        </div>
+
+        <div class="form-group">
+          <label for="modal-task-project-select">Раздел и проект:</label>
+          <select id="modal-task-project-select" class="input-select modal-input"></select>
+        </div>
+
+        <div class="form-group">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <label for="modal-task-desc" style="margin: 0; cursor: pointer;" onclick="document.getElementById('modal-task-desc')?.focus()">Описание задачи:</label>
+            <button type="button" class="btn-xs btn-subtle" onclick="App.openTaskNoteFromEditModal()" style="display: inline-flex; align-items: center; gap: 5px; color: var(--accent-primary); font-weight: 600; padding: 2px 8px; border: 1px solid var(--border-color); border-radius: 4px;">
+              <span>📖 Открыть заметку (большой редактор)</span>
+            </button>
+          </div>
+          <textarea id="modal-task-desc" class="modal-input modal-textarea" placeholder="Краткие детали задачи..." rows="2" onclick="this.focus()" onmousedown="this.focus()"></textarea>
+        </div>
+
+        <!-- Блок управления подпунктами задачи -->
+        <div class="form-group">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label style="margin: 0;">Подпункты (Чек-лист):</label>
+            <button type="button" class="btn-sm btn-subtle" onclick="App.addSubtaskInModal()">+ Добавить пункт</button>
+          </div>
+          <div class="modal-subtasks-list" id="modal-subtasks-list">
+            <!-- Динамический список подпунктов -->
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>📅 Дата выполнения (Срок):</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="date" id="modal-task-date" class="modal-input" style="flex: 1;">
+            <button type="button" class="btn-subtle" onclick="document.getElementById('modal-task-date').value = new Date().toISOString().slice(0, 10)">Сегодня</button>
+            <button type="button" class="btn-subtle" onclick="App.clearTaskModalReminder()" title="Сбросить дату">✕ Без даты</button>
+          </div>
+        </div>
+
+        <div class="form-group" style="background-color: var(--bg-input); padding: 10px 12px; border-radius: var(--radius-sm); border: 1px dashed var(--border-color);">
+          <label class="toggle-row" style="margin: 0;">
+            <input type="checkbox" id="modal-task-has-reminder" onchange="document.getElementById('modal-task-time-box').style.display = this.checked ? 'flex' : 'none'">
+            <span style="font-weight: 500;">🔔 Включить звуковое напоминание (Будильник)</span>
+          </label>
+          <div id="modal-task-time-box" style="display: none; flex-direction: column; gap: 8px; margin-top: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <label style="font-size: 13px; color: var(--text-secondary); margin: 0;">Точное время:</label>
+              <input type="time" id="modal-task-time" class="modal-input" style="width: 120px;" value="12:00">
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <label style="font-size: 13px; color: var(--text-secondary); margin: 0;">⏳ Опережение:</label>
+              <select id="modal-task-reminder-advance" class="input-select modal-input" style="width: 200px;" onchange="document.getElementById('modal-task-advance-also-wrap').style.display = this.value !== '0' ? 'flex' : 'none'">
+                <option value="0">В момент времени (вовремя)</option>
+                <option value="5">За 5 минут</option>
+                <option value="10">За 10 минут</option>
+                <option value="15">За 15 минут</option>
+                <option value="30">За 30 минут</option>
+                <option value="60">За 1 час</option>
+                <option value="120">За 2 часа</option>
+                <option value="1440">За 1 день (24 часа)</option>
+              </select>
+            </div>
+            <div id="modal-task-advance-also-wrap" style="display: none; align-items: center; gap: 6px; margin-top: 2px;">
+              <label class="toggle-row" style="margin: 0; font-size: 12px; color: var(--text-secondary); cursor: pointer;">
+                <input type="checkbox" id="modal-task-advance-also-exact" checked>
+                <span>Напомнить повторно и в точный момент наступления задачи</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>🔁 Регулярный повтор (повторяющаяся задача):</label>
+          <select id="modal-task-repeat" class="input-select modal-input">
+            <option value="none">Однократно (без повторения)</option>
+            <option value="daily">Каждый день</option>
+            <option value="weekdays">По будням (Пн-Пт)</option>
+            <option value="weekly">Раз в неделю</option>
+            <option value="monthly">Раз в месяц</option>
+            <option value="yearly">Раз в год</option>
+          </select>
+          <p class="text-muted" style="font-size: 11.5px; margin-top: 3px; margin-bottom: 0;">При нажатии «Выполнено» текущая задача уйдет в архив, а на следующий цикл автоматически создастся новая активная задача с чистыми чек-листами.</p>
+        </div>
+
+        <!-- Ручной ввод / корректировка времени по задаче -->
+        <div class="form-group" style="background-color: var(--bg-input); padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label style="margin: 0; font-size: 13px; font-weight: 600;">⏱️ Потрачено времени на задачу:</label>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span id="modal-task-time-display" style="font-size: 13px; font-weight: 700; color: var(--accent-primary);">0 мин</span>
+              <button type="button" class="btn-xs btn-subtle" onclick="App.openTimeLogFromEditModal()" title="Открыть подробный журнал интервалов времени для этой задачи">⏱️ Все интервалы</button>
+            </div>
+          </div>
+
+          <!-- Переключатель режима авторасчета интервала в карточке редактирования задачи -->
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; padding: 4px 8px; background: var(--bg-card); border-radius: var(--radius-sm); border: 1px dashed var(--border-color);">
+            <label style="margin: 0; font-size: 11.5px; font-weight: 600; color: var(--text-secondary);">
+              🧭 Авторасчет интервала:
+            </label>
+            <div style="display: flex; gap: 4px;">
+              <button type="button" class="btn-xs btn-filter active" id="btn-task-calc-mode-until-now" onclick="App.setTaskEditCalcMode('until_now')" title="Окончание = сейчас, начало рассчитывается назад по длительности">🏁 До текущего (назад)</button>
+              <button type="button" class="btn-xs btn-filter" id="btn-task-calc-mode-from-now" onclick="App.setTaskEditCalcMode('from_now')" title="Начало = сейчас, окончание рассчитывается вперед по длительности">🚀 От текущего (вперед)</button>
+            </div>
+            <input type="hidden" id="modal-task-calc-mode" value="until_now">
+          </div>
+
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <input type="number" id="modal-task-hours" class="modal-input" min="0" max="999" placeholder="0" style="width: 65px; text-align: center;" oninput="App.onModalTimeInputChange()" onclick="this.focus()" onmousedown="this.focus()">
+              <span style="font-size: 12.5px; color: var(--text-secondary);">ч</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <input type="number" id="modal-task-minutes" class="modal-input" min="0" max="59" placeholder="0" style="width: 65px; text-align: center;" oninput="App.onModalTimeInputChange()" onclick="this.focus()" onmousedown="this.focus()">
+              <span style="font-size: 12.5px; color: var(--text-secondary);">мин</span>
+            </div>
+            <div style="display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap;">
+              <button type="button" class="btn-xs btn-subtle" onclick="App.addMinutesToModalTask(-15)" title="Уменьшить на 15 минут">-15м</button>
+              <button type="button" class="btn-xs btn-subtle" onclick="App.addMinutesToModalTask(5)" title="Добавить 5 минут">+5м</button>
+              <button type="button" class="btn-xs btn-subtle" onclick="App.addMinutesToModalTask(15)" title="Добавить 15 минут">+15м</button>
+              <button type="button" class="btn-xs btn-subtle" onclick="App.addMinutesToModalTask(30)" title="Добавить 30 минут">+30м</button>
+              <button type="button" class="btn-xs btn-subtle" onclick="App.addMinutesToModalTask(60)" title="Добавить 1 час">+1ч</button>
+              <button type="button" class="btn-xs btn-subtle" onclick="App.resetModalTaskTime()" title="Сбросить время в ноль">✕ 0</button>
+            </div>
+          </div>
+          <div id="modal-task-calc-preview" style="margin-top: 8px; font-size: 12px; font-weight: 600; color: var(--accent-primary); background: rgba(79, 110, 247, 0.08); border-radius: 4px; padding: 4px 8px; display: flex; align-items: center; gap: 6px;"></div>
+        </div>
+
+        <!-- Секция вложений, ссылок и скриншотов -->
+        <div class="form-group" style="background-color: var(--bg-input); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+            <label style="margin: 0; font-size: 13px; font-weight: 600;">📎 Вложения, ссылки и материалы:</label>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+              <button type="button" class="btn-xs btn-subtle" onclick="App.openAddLinkModal()" title="Добавить ссылку на сайт">🌐 + Ссылка</button>
+              <button type="button" class="btn-xs btn-subtle" onclick="App.addLocalFolderAttachment()" title="Прикрепить папку с компьютера">📁 + Папка</button>
+              <button type="button" class="btn-xs btn-subtle" onclick="App.addLocalFileAttachment()" title="Прикрепить файл">📄 + Файл</button>
+              <button type="button" class="btn-xs btn-subtle" onclick="App.addImageFileAttachment()" title="Выбрать картинку с диска">🖼️ + Картинка</button>
+            </div>
+          </div>
+
+          <!-- Зона вставки скриншота Ctrl+V -->
+          <div class="attachment-paste-zone" id="task-modal-paste-zone" title="Вставьте скриншот из буфера обмена (Ctrl + V)">
+            <span>📋 Вставьте скриншот из буфера клавишами <kbd>Ctrl</kbd> + <kbd>V</kbd> или нажмите кнопки выше</span>
+          </div>
+
+          <!-- Список прикрепленных вложений -->
+          <div class="modal-attachments-container" id="modal-attachments-container">
+            <!-- Динамически заполняется -->
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-subtle btn-delete-modal" style="margin-right: auto;" onclick="App.deleteTaskFromModal()">Удалить задачу</button>
+        <button type="button" class="btn-subtle" onclick="App.closeModal('modal-edit-task')">Отмена</button>
+        <button type="button" class="btn-primary" onclick="App.saveTaskModal()">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО: Добавление веб-ссылки к задаче -->
+  <div class="modal-overlay" id="modal-add-link" style="display: none; z-index: 12000;">
+    <div class="modal-card" style="max-width: 460px;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 20px;" id="modal-link-icon">🌐</span>
+          <h3 class="modal-title" id="modal-link-heading" style="margin: 0; font-size: 16px;">Добавить ссылку на сайт</h3>
+        </div>
+        <button class="btn-close" onclick="App.closeModal('modal-add-link')">✕</button>
+      </div>
+      <div class="modal-body" style="gap: 12px;">
+        <div class="form-group">
+          <label style="font-size: 13px; margin-bottom: 4px;">Адрес ссылки (URL):</label>
+          <input type="url" id="link-input-url" class="modal-input" placeholder="https://example.com/..." autocomplete="off" oninput="App.onLinkUrlInput(this.value)" onpaste="setTimeout(() => App.onLinkUrlInput(document.getElementById('link-input-url')?.value), 40)" onkeydown="if(event.key==='Enter') App.applyAddLink()">
+          <div id="link-fetch-status" style="font-size: 12px; color: var(--accent-primary); margin-top: 4px; display: none;">⏳ Автоматическое определение названия страницы...</div>
+        </div>
+        <div class="form-group">
+          <label style="font-size: 13px; margin-bottom: 4px;">Название ссылки (подставляется автоматически):</label>
+          <input type="text" id="link-input-title" class="modal-input" placeholder="Заголовок страницы определится автоматически" autocomplete="off" onkeydown="if(event.key==='Enter') App.applyAddLink()">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-subtle" onclick="App.closeModal('modal-add-link')">Отмена</button>
+        <button type="button" class="btn-primary" id="btn-link-save" onclick="App.applyAddLink()">💾 Прикрепить ссылку</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО: Большие заметки, регламенты и инструкции к задаче (Word-подобный редактор) -->
+  <div class="modal-overlay modal-note-overlay" id="modal-task-note" style="display: none; z-index: 10500;">
+    <div class="modal-card modal-note-card" id="modal-note-card">
+      <div class="modal-header modal-note-header">
+        <div class="modal-note-title-wrap">
+          <span class="modal-note-icon">📖</span>
+          <div style="display: flex; flex-direction: column; min-width: 0;">
+            <h3 class="modal-note-title" id="modal-note-task-title">Заметка к задаче</h3>
+            <span class="modal-note-save-status" id="modal-note-save-status">💾 Сохранено</span>
+          </div>
+        </div>
+        <div class="modal-note-header-actions">
+          <button type="button" class="btn-tool" onclick="App.copyNoteText()" title="Скопировать весь текст заметки">📋 Скопировать</button>
+          <button type="button" class="btn-tool" onclick="App.printTaskNote()" title="Распечатать / Сохранить в PDF">🖨️ Печать</button>
+          <button type="button" class="btn-tool" onclick="App.toggleNoteFullscreen()" id="btn-note-fullscreen" title="Развернуть на весь экран (⛶)">⛶</button>
+          <button type="button" class="btn-tool btn-tool-danger" onclick="App.deleteCurrentTaskNote()" title="Удалить заметку целиком">🗑️ Удалить заметку</button>
+          <button type="button" class="btn-close" onclick="App.closeTaskNoteModal()" style="margin-left: 6px;">✕</button>
+        </div>
+      </div>
+
+      <!-- Панель инструментов Word / Notion (Sticky Toolbar) -->
+      <div class="note-toolbar" id="note-toolbar">
+        <div class="note-tool-group">
+          <button type="button" class="note-btn" onmousedown="event.preventDefault()" onclick="App.execNoteCommand('undo')" title="Отменить (Ctrl+Z)">↩</button>
+          <button type="button" class="note-btn" onmousedown="event.preventDefault()" onclick="App.execNoteCommand('redo')" title="Повторить (Ctrl+Y)">↪</button>
+        </div>
+        
+        <div class="note-tool-separator"></div>
+
+        <div class="note-tool-group">
+          <select class="note-select" id="note-heading-select" onchange="App.applyNoteHeading(this.value)" title="Стиль заголовка">
+            <option value="p">Обычный текст</option>
+            <option value="h1">Заголовок 1 (H1)</option>
+            <option value="h2">Заголовок 2 (H2)</option>
+            <option value="h3">Заголовок 3 (H3)</option>
+          </select>
+        </div>
+
+        <div class="note-tool-separator"></div>
+
+        <div class="note-tool-group">
+          <button type="button" class="note-btn" id="note-btn-bold" onmousedown="event.preventDefault()" onclick="App.execNoteCommand('bold')" title="Жирный (Ctrl+B)"><b>B</b></button>
+          <button type="button" class="note-btn" id="note-btn-italic" onmousedown="event.preventDefault()" onclick="App.execNoteCommand('italic')" title="Курсив (Ctrl+I)"><i>I</i></button>
+          <button type="button" class="note-btn" id="note-btn-underline" onmousedown="event.preventDefault()" onclick="App.execNoteCommand('underline')" title="Подчеркнутый (Ctrl+U)"><u>U</u></button>
+          <button type="button" class="note-btn" id="note-btn-strike" onmousedown="event.preventDefault()" onclick="App.execNoteCommand('strikeThrough')" title="Зачеркнутый"><s>S</s></button>
+        </div>
+
+        <div class="note-tool-separator"></div>
+
+        <div class="note-tool-group" style="position: relative;">
+          <!-- Цвет шрифта -->
+          <button type="button" class="note-btn" onmousedown="event.preventDefault()" onclick="App.toggleNoteColorPalette(event)" title="Цвет текста">
+            <span style="font-weight: 700; border-bottom: 3px solid var(--accent-primary, #b45309);">A</span>
+          </button>
+          <!-- Выделение маркером (Highlight) -->
+          <button type="button" class="note-btn" onmousedown="event.preventDefault()" onclick="App.toggleNoteHighlightPalette(event)" title="Цветной маркер (выделение)">
+            <span style="background-color: #fef08a; color: #854d0e; padding: 0 4px; border-radius: 2px; font-weight: 700;">🖍</span>
+          </button>
+        </div>
+
+        <div class="note-tool-separator"></div>
+
+        <div class="note-tool-group">
+          <button type="button" class="note-btn" onmousedown="event.preventDefault()" onclick="App.execNoteCommand('insertUnorderedList')" title="Маркированный список (•)">• Список</button>
+          <button type="button" class="note-btn" onmousedown="event.preventDefault()" onclick="App.execNoteCommand('insertOrderedList')" title="Нумерованный список (1.)">1. Список</button>
+          <button type="button" class="note-btn" onmousedown="event.preventDefault()" onclick="App.insertNoteTodoItem()" title="Вставить пункт чек-листа [ ]">☑ To-Do</button>
+        </div>
+
+        <div class="note-tool-separator"></div>
+
+        <div class="note-tool-group">
+          <button type="button" class="note-btn" onmousedown="event.preventDefault()" onclick="App.insertNoteCallout()" title="Блок внимания / Совет (💡)">💡 Совет</button>
+          <button type="button" class="note-btn" onmousedown="event.preventDefault()" onclick="App.insertNoteQuote()" title="Цитата (💬)">💬 Цитата</button>
+          <button type="button" class="note-btn" onmousedown="event.preventDefault()" onclick="App.insertNoteDivider()" title="Разделительная линия (➖)">➖</button>
+        </div>
+
+        <div class="note-tool-separator"></div>
+
+        <div class="note-tool-group">
+          <button type="button" class="note-btn" onmousedown="event.preventDefault()" onclick="App.triggerNoteImageUpload()" title="Вставить картинку с диска (или нажмите Ctrl+V в тексте)">🖼️ Фото</button>
+          <button type="button" class="note-btn" onmousedown="event.preventDefault()" onclick="App.toggleNoteEmojiPicker(event)" title="Вставить Emoji">😀</button>
+          <button type="button" class="note-btn" onmousedown="event.preventDefault()" onclick="App.insertNoteLinkPrompt()" title="Вставить ссылку">🔗</button>
+          <button type="button" class="note-btn" onmousedown="event.preventDefault()" onclick="App.execNoteCommand('removeFormat')" title="Очистить форматирование">🧹</button>
+        </div>
+      </div>
+
+      <!-- Всплывающие палитры цветов -->
+      <div class="note-popover" id="note-color-palette" style="display: none;" onclick="event.stopPropagation()">
+        <div class="note-color-grid">
+          <button type="button" style="background:#1e293b;" title="Темно-серый" onclick="App.applyNoteTextColor('#1e293b')"></button>
+          <button type="button" style="background:#b45309;" title="Коричневый / Акцент" onclick="App.applyNoteTextColor('#b45309')"></button>
+          <button type="button" style="background:#ef4444;" title="Красный" onclick="App.applyNoteTextColor('#ef4444')"></button>
+          <button type="button" style="background:#10b981;" title="Зеленый" onclick="App.applyNoteTextColor('#10b981')"></button>
+          <button type="button" style="background:#3b82f6;" title="Синий" onclick="App.applyNoteTextColor('#3b82f6')"></button>
+          <button type="button" style="background:#8b5cf6;" title="Фиолетовый" onclick="App.applyNoteTextColor('#8b5cf6')"></button>
+          <button type="button" style="background:#ec4899;" title="Розовый" onclick="App.applyNoteTextColor('#ec4899')"></button>
+        </div>
+      </div>
+
+      <div class="note-popover" id="note-highlight-palette" style="display: none;" onclick="event.stopPropagation()">
+        <div class="note-color-grid">
+          <button type="button" style="background:#fef08a;" title="Желтый маркер" onclick="App.applyNoteHighlight('#fef08a')"></button>
+          <button type="button" style="background:#bbf7d0;" title="Зеленый маркер" onclick="App.applyNoteHighlight('#bbf7d0')"></button>
+          <button type="button" style="background:#bfdbfe;" title="Голубой маркер" onclick="App.applyNoteHighlight('#bfdbfe')"></button>
+          <button type="button" style="background:#fbcfe8;" title="Розовый маркер" onclick="App.applyNoteHighlight('#fbcfe8')"></button>
+          <button type="button" style="background:#fed7aa;" title="Оранжевый маркер" onclick="App.applyNoteHighlight('#fed7aa')"></button>
+          <button type="button" style="background:transparent; border: 1px dashed var(--border-color);" title="Без выделения" onclick="App.applyNoteHighlight('transparent')">✕</button>
+        </div>
+      </div>
+
+      <!-- Всплывающий выбор Emoji -->
+      <div class="note-popover note-emoji-popover" id="note-emoji-palette" style="display: none;" onclick="event.stopPropagation()">
+        <div class="note-emoji-grid">
+          <span onclick="App.insertNoteEmoji('😀')">😀</span><span onclick="App.insertNoteEmoji('😎')">😎</span><span onclick="App.insertNoteEmoji('🎯')">🎯</span><span onclick="App.insertNoteEmoji('🚀')">🚀</span><span onclick="App.insertNoteEmoji('💡')">💡</span><span onclick="App.insertNoteEmoji('⭐')">⭐</span><span onclick="App.insertNoteEmoji('🔥')">🔥</span><span onclick="App.insertNoteEmoji('✅')">✅</span>
+          <span onclick="App.insertNoteEmoji('❌')">❌</span><span onclick="App.insertNoteEmoji('⚠️')">⚠️</span><span onclick="App.insertNoteEmoji('📌')">📌</span><span onclick="App.insertNoteEmoji('📊')">📊</span><span onclick="App.insertNoteEmoji('💻')">💻</span><span onclick="App.insertNoteEmoji('💼')">💼</span><span onclick="App.insertNoteEmoji('📝')">📝</span><span onclick="App.insertNoteEmoji('📁')">📁</span>
+          <span onclick="App.insertNoteEmoji('📅')">📅</span><span onclick="App.insertNoteEmoji('🕒')">🕒</span><span onclick="App.insertNoteEmoji('☕')">☕</span><span onclick="App.insertNoteEmoji('❤️')">❤️</span><span onclick="App.insertNoteEmoji('👍')">👍</span><span onclick="App.insertNoteEmoji('🎉')">🎉</span><span onclick="App.insertNoteEmoji('🔍')">🔍</span><span onclick="App.insertNoteEmoji('🔒')">🔒</span>
+        </div>
+      </div>
+
+      <!-- Рабочая область документа заметки -->
+      <div class="modal-note-body" onclick="if(event.target === this) { const ed = document.getElementById('task-note-editor'); if(ed) { ed.focus(); } }">
+        <div id="task-note-editor" class="task-note-editor" contenteditable="true" 
+             onclick="this.focus()" onmousedown="this.focus()"
+             data-placeholder="Начните писать подробный текст, регламент, план или вставьте скриншоты клавишами Ctrl+V в любое место...">
+        </div>
+      </div>
+
+      <!-- Скрытый инпут для вставки фото с диска -->
+      <input type="file" id="note-file-input" accept="image/*" style="display: none;" onchange="App.onNoteFileSelected(event)">
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО: Просмотрщик картинок и скриншотов (Lightbox) -->
+  <div class="modal-overlay modal-lightbox-overlay" id="modal-image-lightbox" style="display: none; z-index: 13000;" onclick="App.closeImageLightbox()">
+    <div class="lightbox-container" onclick="event.stopPropagation()">
+      <div class="lightbox-toolbar">
+        <span class="lightbox-title" id="lightbox-image-title">🖼️ Просмотр скриншота</span>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button type="button" class="btn-sm btn-subtle" onclick="App.copyLightboxImageToClipboard()" title="Скопировать изображение в буфер обмена">📋 Скопировать</button>
+          <button type="button" class="btn-sm btn-primary" onclick="App.downloadLightboxImage()" title="Сохранить изображение на диск">💾 Скачать</button>
+          <button type="button" class="btn-close" onclick="App.closeImageLightbox()" style="color: #fff; margin-left: 6px;">✕</button>
+        </div>
+      </div>
+      <div class="lightbox-image-wrap">
+        <img id="lightbox-image-src" src="" alt="Изображение">
+      </div>
+    </div>
+  </div>
+
+  <!-- ВСПЛЫВАЮЩЕЕ ОКНО: БУДИЛЬНИК / НАПОМИНАНИЕ О ЗАДАЧЕ (ЗВУЧИТ ПОКА НЕ ВЫКЛЮЧИШЬ) -->
+  <div class="modal-overlay modal-alarm-overlay" id="modal-alarm" style="display: none;">
+    <div class="modal-card alarm-modal-card">
+      <div class="alarm-header-animation">
+        <div class="alarm-bell-icon">🔔</div>
+        <div class="alarm-badge" id="alarm-modal-badge">ВРЕМЯ ЗАДАЧИ!</div>
+      </div>
+
+      <div class="alarm-body-content">
+        <h2 class="alarm-task-title" id="alarm-modal-task-title">Название задачи</h2>
+        <div class="alarm-meta" id="alarm-modal-meta">💼 Рабочие задачи ➔ 📂 Основное</div>
+        <p class="alarm-subtitle" id="alarm-modal-subtitle">Будильник звенит непрерывно. Выберите действие:</p>
+      </div>
+
+      <div class="alarm-actions-grid">
+        <button type="button" class="btn-alarm btn-alarm-stop" onclick="App.dismissAlarm()">
+          🛑 Выключить звук
+        </button>
+        <button type="button" class="btn-alarm btn-alarm-snooze" onclick="App.snoozeAlarm(5)">
+          ⏰ Отложить на 5 мин
+        </button>
+        <button type="button" class="btn-alarm btn-alarm-snooze" onclick="App.snoozeAlarm(15)">
+          ⏰ Отложить на 15 мин
+        </button>
+        <button type="button" class="btn-alarm btn-alarm-done" onclick="App.completeTaskFromAlarm()">
+          ✓ Выполнено!
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО: Глобальный быстрый ввод задачи (Quick Capture) -->
+  <div class="modal-overlay" id="modal-quick-capture" style="display: none;">
+    <div class="modal-card quick-capture-card" style="max-width: 540px;">
+      <div class="modal-header" style="border-bottom: none; padding-bottom: 0;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 20px;">⚡</span>
+          <div>
+            <h3 class="modal-title" style="font-size: 16px; margin: 0;">Быстрое добавление задачи</h3>
+            <span style="font-size: 11.5px; color: var(--text-muted);">[Enter] — сохранить, [Esc] — закрыть</span>
+          </div>
+        </div>
+        <button class="btn-close" onclick="App.closeQuickCaptureModal()">✕</button>
+      </div>
+
+      <div class="modal-body" style="gap: 12px; padding-top: 8px;">
+        <!-- Поле ввода названия -->
+        <div class="form-group">
+          <input type="text" 
+                 id="quick-task-title" 
+                 class="modal-input quick-task-input" 
+                 placeholder="Что нужно сделать? Нажмите Enter для сохранения..." 
+                 autocomplete="off"
+                 onkeydown="if(event.key === 'Enter') App.saveQuickCaptureTask()">
+        </div>
+
+        <!-- Выбор Раздела и Папки -->
+        <div class="form-group">
+          <label style="font-size: 12.5px; color: var(--text-secondary); margin-bottom: 2px;">📁 Куда сохранить (Проект):</label>
+          <select id="quick-task-project-select" class="input-select modal-input">
+            <!-- Заполняется динамически -->
+          </select>
+        </div>
+
+        <!-- Быстрый выбор даты -->
+        <div class="form-group">
+          <label style="font-size: 12.5px; color: var(--text-secondary); margin-bottom: 2px;">📅 Срок выполнения:</label>
+          <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
+            <button type="button" class="btn-sm btn-subtle quick-date-btn active" id="quick-date-today" onclick="App.setQuickCaptureDate('today')">Сегодня</button>
+            <button type="button" class="btn-sm btn-subtle quick-date-btn" id="quick-date-tomorrow" onclick="App.setQuickCaptureDate('tomorrow')">Завтра</button>
+            <button type="button" class="btn-sm btn-subtle quick-date-btn" id="quick-date-none" onclick="App.setQuickCaptureDate('none')">Без даты</button>
+            <input type="date" id="quick-task-custom-date" class="modal-input" style="flex: 1; min-width: 130px; padding: 4px 8px; font-size: 12.5px;" onchange="App.onQuickCaptureCustomDateChange(this.value)">
+          </div>
+        </div>
+
+        <!-- Напоминание, Повтор и Цвет -->
+        <div class="form-row" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+          <div class="form-group" style="flex: 1.2; min-width: 180px;">
+            <label class="toggle-row" style="margin: 0; font-size: 12.5px;">
+              <input type="checkbox" id="quick-task-has-reminder" onchange="document.getElementById('quick-task-time-box').style.display = this.checked ? 'flex' : 'none'">
+              <span>🔔 Напоминание</span>
+            </label>
+            <div id="quick-task-time-box" style="display: none; align-items: center; gap: 6px; margin-top: 6px; flex-wrap: wrap;">
+              <input type="time" id="quick-task-time" class="modal-input" style="width: 100px; padding: 4px 8px;" value="12:00">
+              <select id="quick-task-reminder-advance" class="input-select modal-input" style="padding: 4px 6px; font-size: 12px; max-width: 140px;">
+                <option value="0">Вовремя</option>
+                <option value="5">За 5 мин</option>
+                <option value="10">За 10 мин</option>
+                <option value="15">За 15 мин</option>
+                <option value="30">За 30 мин</option>
+                <option value="60">За 1 час</option>
+                <option value="120">За 2 часа</option>
+                <option value="1440">За 1 день</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group" style="flex: 1; min-width: 130px;">
+            <label style="font-size: 12px; color: var(--text-secondary); margin-bottom: 2px;">🔁 Повтор:</label>
+            <select id="quick-task-repeat" class="input-select modal-input" style="padding: 4px 8px; font-size: 12px;">
+              <option value="none">Однократно</option>
+              <option value="daily">Каждый день</option>
+              <option value="weekdays">По будням</option>
+              <option value="weekly">Раз в неделю</option>
+              <option value="monthly">Раз в месяц</option>
+              <option value="yearly">Раз в год</option>
+            </select>
+          </div>
+
+          <div class="form-group" style="flex-shrink: 0;">
+            <label style="font-size: 12px; color: var(--text-secondary); margin-bottom: 2px;">Цвет:</label>
+            <div class="color-palette-selector" id="quick-task-color-palette" style="display: flex; gap: 4px;">
+              <button type="button" class="color-chip active" data-color="" onclick="App.selectQuickTaskColor('')" style="background-color: var(--text-muted);" title="Без цвета"></button>
+              <button type="button" class="color-chip" data-color="#ef4444" onclick="App.selectQuickTaskColor('#ef4444')" style="background-color: #ef4444;" title="Красный (Срочно)"></button>
+              <button type="button" class="color-chip" data-color="#f59e0b" onclick="App.selectQuickTaskColor('#f59e0b')" style="background-color: #f59e0b;" title="Оранжевый"></button>
+              <button type="button" class="color-chip" data-color="#10b981" onclick="App.selectQuickTaskColor('#10b981')" style="background-color: #10b981;" title="Зеленый"></button>
+              <button type="button" class="color-chip" data-color="#3b82f6" onclick="App.selectQuickTaskColor('#3b82f6')" style="background-color: #3b82f6;" title="Синий"></button>
+              <button type="button" class="color-chip" data-color="#8b5cf6" onclick="App.selectQuickTaskColor('#8b5cf6')" style="background-color: #8b5cf6;" title="Фиолетовый"></button>
+            </div>
+            <input type="hidden" id="quick-task-color" value="">
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+        <label class="toggle-row" style="margin: 0; font-size: 12px; color: var(--text-muted);" title="Если окно было открыто из другой программы, планер свернется обратно">
+          <input type="checkbox" id="quick-task-auto-minimize" checked>
+          <span>Сворачивать после добавления</span>
+        </label>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" class="btn-subtle" onclick="App.closeQuickCaptureModal()">Отмена (Esc)</button>
+          <button type="button" class="btn-primary" onclick="App.saveQuickCaptureTask()">💾 Добавить задачу (Enter)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО: Универсальный диалог ввода (Замена prompt) -->
+  <div class="modal-overlay" id="modal-prompt" style="display: none; z-index: 13000;">
+    <div class="modal-card" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modal-prompt-title">Ввод значения</h3>
+        <button class="btn-close" onclick="App.cancelPromptModal()">✕</button>
+      </div>
+      <div class="modal-body" style="padding-top: 10px;">
+        <input type="text" id="modal-prompt-input" class="modal-input" autocomplete="off" onkeydown="if(event.key==='Enter') App.confirmPromptModal(); else if(event.key==='Escape') App.cancelPromptModal();">
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 8px;">
+        <button type="button" class="btn-subtle" onclick="App.cancelPromptModal()">Отмена (Esc)</button>
+        <button type="button" class="btn-primary" onclick="App.confirmPromptModal()">ОК (Enter)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО: Резервные копии и настройки -->
+  <div class="modal-overlay" id="modal-settings" style="display: none;">
+    <div class="modal-card" style="max-width: 680px;">
+      <div class="modal-header">
+        <h3 class="modal-title">⚙️ Настройки программы</h3>
+        <button class="btn-close" onclick="App.closeModal('modal-settings')">✕</button>
+      </div>
+
+      <!-- Навигационные вкладки настроек -->
+      <div class="settings-tabs-nav">
+        <button type="button" class="settings-tab-btn active" id="tab-btn-hotkeys" onclick="App.switchSettingsTab('hotkeys')">⌨️ Клавиши</button>
+        <button type="button" class="settings-tab-btn" id="tab-btn-webdav" onclick="App.switchSettingsTab('webdav')">☁️ Облако</button>
+        <button type="button" class="settings-tab-btn" id="tab-btn-vaults" onclick="App.switchSettingsTab('vaults')">🏛️ Базы данных</button>
+        <button type="button" class="settings-tab-btn" id="tab-btn-backup" onclick="App.switchSettingsTab('backup')">💾 Бэкапы</button>
+        <button type="button" class="settings-tab-btn" id="tab-btn-appearance" onclick="App.switchSettingsTab('appearance')">🎨 Темы</button>
+        <button type="button" class="settings-tab-btn" id="tab-btn-tasks" onclick="App.switchSettingsTab('tasks')">📋 Задачи</button>
+        <button type="button" class="settings-tab-btn" id="tab-btn-sound" onclick="App.switchSettingsTab('sound')">🔔 Звуки</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- ВКЛАДКА 1: Горячие клавиши -->
+        <div class="settings-tab-panel active" id="settings-panel-hotkeys">
+          <div class="settings-section">
+            <h4>⚡ Глобальный быстрый ввод (из любого места Windows)</h4>
+            <p class="text-muted">Нажмите заданную комбинацию клавиш в любой программе (в браузере, Word, игре) — откроется окно быстрого добавления задачи.</p>
+
+            <div class="form-group" style="margin-top: 10px;">
+              <label class="toggle-row">
+                <input type="checkbox" id="setting-hotkey-enabled" checked onchange="App.onHotkeyEnabledToggle(this.checked)">
+                <span class="toggle-label" style="font-weight: 600;">Включить глобальное сочетание клавиш</span>
+              </label>
+            </div>
+
+            <!-- Блок отображения и настройки комбинации -->
+            <div class="hotkey-config-box" id="hotkey-config-box" style="margin-top: 8px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--bg-input); padding: 12px 14px; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+                <div>
+                  <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Текущая комбинация клавиш:</div>
+                  <div class="hotkey-display" id="hotkey-display-keys">
+                    <kbd>Alt</kbd> + <kbd>Space</kbd>
+                  </div>
+                </div>
+                <button type="button" class="btn-primary" id="btn-record-hotkey" onclick="App.startHotkeyRecording()">
+                  ⌨️ Задать свою комбинацию
+                </button>
+              </div>
+
+              <!-- Поле интерактивного перехвата клавиш -->
+              <div id="hotkey-recorder-box" style="display: none; margin-top: 10px; background: rgba(79, 110, 247, 0.12); border: 2px dashed var(--accent-primary); border-radius: var(--radius-md); padding: 14px; text-align: center;">
+                <div id="hotkey-recorder-title" style="font-size: 13.5px; font-weight: 700; color: var(--text-main); margin-bottom: 4px;">🔴 Нажмите желаемую комбинацию на клавиатуре...</div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px;">Например: <code>Ctrl + Shift + A</code>, <code>Alt + N</code>, <code>Ctrl + M</code>, <code>Ctrl + Alt + K</code></div>
+                <div class="hotkey-live-preview" id="hotkey-live-preview" style="font-size: 17px; font-weight: 700; color: var(--accent-primary); margin-bottom: 10px; min-height: 26px;">Ожидание нажатия...</div>
+                <div style="display: flex; gap: 8px; justify-content: center;">
+                  <button type="button" class="btn-primary" id="btn-save-recorded-hotkey" onclick="App.applyRecordedHotkey()" disabled>💾 Сохранить комбинацию</button>
+                  <button type="button" class="btn-subtle" onclick="App.cancelHotkeyRecording()">Отмена (Esc)</button>
+                </div>
+              </div>
+
+              <!-- Быстрые пресеты для глобального ввода -->
+              <div style="margin-top: 12px;">
+                <div style="font-size: 12.5px; color: var(--text-secondary); margin-bottom: 6px;">Готовые популярные варианты (для быстрого ввода):</div>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                  <button type="button" class="btn-sm btn-subtle" onclick="App.setHotkeyPreset('Alt+Space')">Alt + Space</button>
+                  <button type="button" class="btn-sm btn-subtle" onclick="App.setHotkeyPreset('Ctrl+Shift+A')">Ctrl + Shift + A</button>
+                  <button type="button" class="btn-sm btn-subtle" onclick="App.setHotkeyPreset('Ctrl+Alt+N')">Ctrl + Alt + N</button>
+                  <button type="button" class="btn-sm btn-subtle" onclick="App.setHotkeyPreset('Alt+N')">Alt + N</button>
+                  <button type="button" class="btn-sm btn-subtle" onclick="App.setHotkeyPreset('Ctrl+Space')">Ctrl + Space</button>
+                </div>
+              </div>
+
+              <div id="hotkey-status-message" style="display: none; padding: 8px 12px; border-radius: 6px; font-size: 12.5px; margin-top: 10px;"></div>
+            </div>
+          </div>
+
+          <div class="settings-divider"></div>
+
+          <div class="settings-section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 8px;">
+              <h4 style="margin: 0;">⌨️ Горячие клавиши внутри программы</h4>
+              <button type="button" class="btn-xs btn-subtle" onclick="App.resetAllInternalHotkeys()" title="Сбросить все внутренние сочетания на значения по умолчанию">↺ Сбросить все по умолчанию</button>
+            </div>
+            <p class="text-muted" style="margin-bottom: 12px; font-size: 12px;">Нажмите кнопку «✏️ Изменить» напротив любого действия, чтобы назначить собственное сочетание клавиш:</p>
+
+            <div id="internal-hotkeys-list" style="display: flex; flex-direction: column; gap: 8px;">
+              <!-- Заполняется динамически функцией App.renderInternalHotkeysList() -->
+            </div>
+          </div>
+        </div>
+
+        <!-- ВКЛАДКА 2: Облачная синхронизация WebDAV -->
+        <div class="settings-tab-panel" id="settings-panel-webdav">
+          <div class="settings-section">
+            <h4>☁️ Облачная синхронизация (WebDAV / Облако Mail.ru)</h4>
+            <p class="text-muted">Синхронизируйте задачи, проекты и время между ПК и ноутбуком через Облако Mail.ru или любой WebDAV сервер.</p>
+            
+            <div class="form-group" style="margin-top: 10px;">
+              <label class="toggle-row">
+                <input type="checkbox" id="setting-webdav-enabled" onchange="App.onWebdavEnabledToggle(this.checked)">
+                <span class="toggle-label" style="font-weight: 600;">Включить облачную синхронизацию данных</span>
+              </label>
+            </div>
+
+            <div id="webdav-config-fields" style="margin-top: 10px; display: flex; flex-direction: column; gap: 10px;">
+              <div class="form-group">
+                <label style="font-size: 12.5px; color: var(--text-secondary); margin-bottom: 4px; display: block;">Адрес сервера WebDAV:</label>
+                <input type="text" id="setting-webdav-server" class="modal-input" value="https://webdav.cloud.mail.ru" placeholder="https://webdav.cloud.mail.ru">
+              </div>
+
+              <div class="form-row" style="display: flex; gap: 10px;">
+                <div class="form-group" style="flex: 1.2;">
+                  <label style="font-size: 12.5px; color: var(--text-secondary); margin-bottom: 4px; display: block;">Логин / Email (Mail.ru):</label>
+                  <input type="text" id="setting-webdav-username" class="modal-input" placeholder="user@mail.ru">
+                </div>
+
+                <div class="form-group" style="flex: 1;">
+                  <label style="font-size: 12.5px; color: var(--text-secondary); margin-bottom: 4px; display: block;">Папка в облаке:</label>
+                  <input type="text" id="setting-webdav-folder" class="modal-input" value="PlanerSync" placeholder="PlanerSync">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label style="font-size: 12.5px; color: var(--text-secondary); margin-bottom: 4px; display: block;">
+                  Пароль WebDAV (Пароль для внешних приложений):
+                </label>
+                <div style="display: flex; gap: 6px;">
+                  <input type="password" id="setting-webdav-password" class="modal-input" placeholder="Пароль для внешних приложений" style="flex: 1;">
+                  <button type="button" class="btn-subtle" onclick="App.toggleWebdavPasswordVisibility()" title="Показать/скрыть пароль" style="padding: 0 12px;">👁️</button>
+                </div>
+              </div>
+
+              <div class="settings-buttons-row" style="margin-top: 6px; display: flex; gap: 8px; flex-wrap: wrap;">
+                <button type="button" class="btn-primary" onclick="App.saveWebdavSettingsAndTest()">💾 Сохранить и проверить связь</button>
+                <button type="button" class="btn-subtle" onclick="App.triggerManualSync()">🔄 Синхронизировать сейчас</button>
+              </div>
+
+              <div id="webdav-status-message" style="display: none; padding: 8px 12px; border-radius: 6px; font-size: 12.5px; margin-top: 6px;"></div>
+
+              <div class="settings-hint-box" style="background: rgba(79, 110, 247, 0.08); border-left: 3px solid var(--accent); padding: 8px 12px; border-radius: 4px; margin-top: 6px;">
+                <p style="font-size: 12px; color: var(--text-secondary); margin: 0; line-height: 1.4;">
+                  💡 <b>Как настроить для Облака Mail.ru:</b><br>
+                  1. Сервер: <code>https://webdav.cloud.mail.ru</code><br>
+                  2. В поле логина укажите ваш email.<br>
+                  3. В поле пароля укажите специальный <b>«Пароль для внешних приложений»</b> (создается в Mail.ru: <i>Настройки почты → Безопасность → Пароли для внешних приложений</i>).
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ВКЛАДКА 3: Сохранность данных -->
+        <div class="settings-tab-panel" id="settings-panel-backup">
+          <div class="settings-section">
+            <h4>💾 Сохранность данных</h4>
+            <p class="text-muted">Все ваши задачи хранятся локально на вашем компьютере в 100% безопасности.</p>
+            <div class="settings-buttons-row">
+              <button class="btn-primary" onclick="App.exportBackup()">📥 Экспорт в файл (.json)</button>
+              <button class="btn-subtle" onclick="App.importBackup()">📤 Загрузить из файла</button>
+              <button class="btn-subtle" onclick="App.openBackupFolder()">📂 Открыть папку бэкапов</button>
+            </div>
+          </div>
+
+          <div class="settings-divider" style="margin: 16px 0;"></div>
+
+          <div class="settings-section">
+            <h4>🖥️ Системный трей и Автозапуск Windows</h4>
+            
+            <div class="form-group" style="margin-top: 10px;">
+              <label class="toggle-row">
+                <input type="checkbox" id="setting-minimize-to-tray" checked onchange="App.onMinimizeToTrayToggle(this.checked)">
+                <span class="toggle-label" style="font-weight: 600;">Сворачивать в системный трей (к часам) при нажатии на крестик (✕)</span>
+              </label>
+              <p class="text-muted" style="font-size: 11.5px; margin-top: 4px; margin-bottom: 0;">При закрытии окна программа продолжает работать в фоне: таймеры ведут учет времени, а будильники гарантированно срабатывают.</p>
+            </div>
+
+            <div class="form-group" style="margin-top: 12px;">
+              <label class="toggle-row">
+                <input type="checkbox" id="setting-autostart-windows" onchange="App.onAutostartWindowsToggle(this.checked)">
+                <span class="toggle-label" style="font-weight: 600;">Запускать Планер автоматически при старте Windows</span>
+              </label>
+              <p class="text-muted" style="font-size: 11.5px; margin-top: 4px; margin-bottom: 0;">Программа будет бесшумно запускаться в свернутом виде вместе с операционной системой Windows.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ВКЛАДКА 4: Оформление -->
+        <div class="settings-tab-panel" id="settings-panel-appearance">
+          <div class="settings-section">
+            <h4>🎨 Тема оформления</h4>
+            <div class="theme-selector-row">
+              <button class="btn-theme active" id="btn-theme-dark" onclick="App.setTheme('dark')">🌙 Темная</button>
+              <button class="btn-theme" id="btn-theme-light" onclick="App.setTheme('light')">☀️ Светлая</button>
+              <button class="btn-theme" id="btn-theme-paper" onclick="App.setTheme('paper')">📜 Тетрадь (Теплая)</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ВКЛАДКА 5: Задачи и списки -->
+        <div class="settings-tab-panel" id="settings-panel-tasks">
+          <div class="settings-section">
+            <h4>📋 Подпункты и описание задач</h4>
+            <div class="form-group" style="margin-top: 8px;">
+              <label style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; display: block;">Отображение по умолчанию:</label>
+              <select id="setting-default-subtasks" class="input-select modal-input" onchange="App.setDefaultSubtasksExpanded(this.value)">
+                <option value="collapsed">▸ Скрывать подпункты и описание (компактный вид)</option>
+                <option value="expanded">▾ Отображать подпункты и описание (развернутый вид)</option>
+              </select>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 8px;">
+              <button type="button" class="btn-subtle" onclick="App.expandAllSubtasks()" style="flex: 1;">▾ Развернуть все сейчас</button>
+              <button type="button" class="btn-subtle" onclick="App.collapseAllSubtasks()" style="flex: 1;">▸ Скрыть все сейчас</button>
+            </div>
+            <p class="text-muted" style="font-size: 12px; margin-top: 6px;">Если вы вручную раскрыли или скрыли отдельную задачу в списке — программа запоминает её состояние.</p>
+          </div>
+
+          <div class="settings-divider"></div>
+
+          <div class="settings-section">
+            <h4>🔔 Автономные напоминания</h4>
+            <div class="form-group" style="margin-top: 6px;">
+              <label class="toggle-row">
+                <input type="checkbox" id="setting-reminders-in-archive" onchange="App.toggleRemindersInArchive(this.checked)">
+                <span class="toggle-label" style="font-weight: 600;">Отображать выполненные напоминания в общем Архиве («Выполнено»)</span>
+              </label>
+              <p class="text-muted" style="font-size: 12px; margin-top: 4px;">По умолчанию напоминания хранятся отдельно и не захламляют список выполненных рабочих задач. Включите эту опцию, если хотите видеть завершенные напоминалки в общем архиве.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ВКЛАДКА 6: Звуки -->
+        <div class="settings-tab-panel" id="settings-panel-sound">
+          <div class="settings-section">
+            <h4>🔔 Звук напоминаний и будильника</h4>
+            <label class="toggle-row">
+              <input type="checkbox" id="setting-sound" checked onchange="App.toggleSound(this.checked)">
+              <span>Включить звуковые сигналы</span>
+            </label>
+
+            <div style="margin-top: 8px;">
+              <label style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; display: block;">Мелодия будильника (звучит до выключения):</label>
+              <div style="display: flex; gap: 8px;">
+                <select id="setting-sound-tone" class="input-select modal-input" style="flex: 1;" onchange="App.setSoundTone(this.value)">
+                  <option value="digital">⏰ Электронный будильник (Динамичный писк)</option>
+                  <option value="bell">🔔 Перезвон колокольчиков (Звонкий)</option>
+                  <option value="pulse">⚡ Энергичный сигнал (Аркада)</option>
+                  <option value="zen">🌿 Мягкий перезвон (Спокойный)</option>
+                  <option value="sonar">📡 Радар / Сонар (Пульсирующий)</option>
+                </select>
+                <button type="button" class="btn-subtle" onclick="App.testSoundTone()" title="Прослушать мелодию">▶ Тест</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ВКЛАДКА 7: Базы данных (Профили / Хранилища) -->
+        <div class="settings-tab-panel" id="settings-panel-vaults">
+          <div class="settings-section">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;">
+              <div>
+                <h4 style="margin: 0;">🏛️ Базы данных и профили</h4>
+                <p class="text-muted" style="margin: 4px 0 0 0; font-size: 12px;">Изолированные базы (например, «Работа» и «Личное») с отдельными путями на диске и облаком.</p>
+              </div>
+              <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" class="btn-sm btn-subtle" onclick="App.cleanEmptyDuplicateSections()" title="Удалить пустые разделы-дубликаты (например, если они случайно подгрузились)">🧹 Очистить дубликаты</button>
+                <button type="button" class="btn-sm btn-primary" onclick="App.openCreateVaultModal()">➕ Новая база</button>
+                <button type="button" class="btn-sm btn-secondary" onclick="App.openVaultFromFile()">📂 Открыть .json</button>
+              </div>
+            </div>
+
+            <div class="vaults-manager-list" id="vaults-settings-list"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-primary" onclick="App.closeModal('modal-settings')">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО: Ручное добавление / редактирование записи времени -->
+  <div class="modal-overlay" id="modal-manual-time-log" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modal-time-log-title">Добавить запись времени</h3>
+        <button class="btn-close" onclick="App.closeModal('modal-manual-time-log')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="modal-time-log-edit-id" value="">
+        
+        <div class="form-group">
+          <label>Тип записи:</label>
+          <div class="filter-buttons-row">
+            <button type="button" class="btn-filter active" id="log-type-work-btn" onclick="App.setManualLogType('work')">💼 Работа над задачей</button>
+            <button type="button" class="btn-filter" id="log-type-break-btn" onclick="App.setManualLogType('break')">☕ Перерыв / Отдых</button>
+          </div>
+          <input type="hidden" id="modal-time-log-type" value="work">
+        </div>
+
+        <div class="form-group" id="modal-time-log-task-group">
+          <label>Связанная задача:</label>
+          <select id="modal-time-log-task-select" class="input-select modal-input"></select>
+        </div>
+
+        <div class="form-group" id="modal-time-log-title-group" style="display: none;">
+          <label>Название / Причина перерыва:</label>
+          <input type="text" id="modal-time-log-custom-title" class="modal-input" placeholder="Например: Обед, Кофе-брейк, Прогулка...">
+        </div>
+
+        <div class="form-group">
+          <label for="modal-time-log-date" style="cursor: pointer;" onclick="document.getElementById('modal-time-log-date')?.focus()">Дата:</label>
+          <input type="date" id="modal-time-log-date" class="modal-input" onclick="this.focus()" onmousedown="this.focus()">
+        </div>
+
+        <!-- Переключатель режима расчета: До текущего (назад) или От текущего (вперед) -->
+        <div class="form-group" style="background: var(--bg-input); padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); margin-bottom: 2px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+            <label style="margin: 0; font-size: 12.5px; font-weight: 600; color: var(--text-main);">
+              🧭 Авторасчет времени:
+            </label>
+            <div style="display: flex; gap: 4px;">
+              <button type="button" class="btn-xs btn-filter active" id="btn-calc-mode-until-now" onclick="App.setTimeLogCalcMode('until_now')" title="Окончание = сейчас, начало рассчитывается назад по длительности">🏁 До текущего (назад)</button>
+              <button type="button" class="btn-xs btn-filter" id="btn-calc-mode-from-now" onclick="App.setTimeLogCalcMode('from_now')" title="Начало = сейчас, окончание рассчитывается вперед по длительности">🚀 От текущего (вперед)</button>
+            </div>
+          </div>
+          <input type="hidden" id="modal-time-log-calc-mode" value="until_now">
+        </div>
+
+        <div class="form-row" style="display: flex; gap: 12px;">
+          <div class="form-group" style="flex: 1;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+              <label for="modal-time-log-start" style="margin: 0; cursor: pointer;" onclick="document.getElementById('modal-time-log-start')?.focus()">Время начала:</label>
+              <button type="button" class="btn-xs btn-subtle" onclick="App.setTimeLogStartToNow()" title="Установить текущее время" style="padding: 1px 6px; font-size: 11px;">🕒 Сейчас</button>
+            </div>
+            <input type="time" id="modal-time-log-start" class="modal-input" value="09:00" oninput="App.onTimeLogIntervalChange('start')" onclick="this.focus()" onmousedown="this.focus()">
+          </div>
+          <div class="form-group" style="flex: 1;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+              <label for="modal-time-log-end" style="margin: 0; cursor: pointer;" onclick="document.getElementById('modal-time-log-end')?.focus()">Время окончания:</label>
+              <button type="button" class="btn-xs btn-subtle" onclick="App.setTimeLogEndToNow()" title="Установить текущее время" style="padding: 1px 6px; font-size: 11px;">🕒 Сейчас</button>
+            </div>
+            <input type="time" id="modal-time-log-end" class="modal-input" value="09:45" oninput="App.onTimeLogIntervalChange('end')" onclick="this.focus()" onmousedown="this.focus()">
+          </div>
+        </div>
+
+        <!-- Ручной ввод / корректировка количества часов и минут -->
+        <div class="form-group" style="background-color: var(--bg-input); padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label style="margin: 0; font-size: 13px; font-weight: 600;">⏱️ Длительность сессии:</label>
+            <span id="modal-time-log-duration-display" style="font-size: 13px; font-weight: 700; color: var(--accent-primary);">45 мин</span>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <input type="number" id="modal-time-log-hours" class="modal-input" min="0" max="24" placeholder="0" style="width: 65px; text-align: center;" oninput="App.onTimeLogDurationChange()" onclick="this.focus()" onmousedown="this.focus()">
+              <span style="font-size: 12.5px; color: var(--text-secondary);">ч</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <input type="number" id="modal-time-log-minutes" class="modal-input" min="0" max="59" placeholder="0" style="width: 65px; text-align: center;" oninput="App.onTimeLogDurationChange()" onclick="this.focus()" onmousedown="this.focus()">
+              <span style="font-size: 12.5px; color: var(--text-secondary);">мин</span>
+            </div>
+            <div style="display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap;">
+              <button type="button" class="btn-xs btn-subtle" onclick="App.addMinutesToTimeLog(-15)" title="Уменьшить на 15 минут">-15м</button>
+              <button type="button" class="btn-xs btn-subtle" onclick="App.addMinutesToTimeLog(5)" title="Добавить 5 минут">+5м</button>
+              <button type="button" class="btn-xs btn-subtle" onclick="App.addMinutesToTimeLog(15)" title="Добавить 15 минут">+15м</button>
+              <button type="button" class="btn-xs btn-subtle" onclick="App.addMinutesToTimeLog(30)" title="Добавить 30 минут">+30м</button>
+              <button type="button" class="btn-xs btn-subtle" onclick="App.addMinutesToTimeLog(60)" title="Добавить 1 час">+1ч</button>
+              <button type="button" class="btn-xs btn-subtle" onclick="App.addMinutesToTimeLog(120)" title="Добавить 2 часа">+2ч</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="modal-time-log-note" style="cursor: pointer;" onclick="document.getElementById('modal-time-log-note')?.focus()">Заметка / Комментарий (опционально):</label>
+          <input type="text" id="modal-time-log-note" class="modal-input" placeholder="Что было сделано во время сессии..." onclick="this.focus()" onmousedown="this.focus()">
+        </div>
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; gap: 8px;">
+          <button type="button" class="btn-subtle" id="btn-delete-time-log-modal" style="display: none; color: #dc2626; font-weight: 600;" onclick="App.deleteTimeLogFromModal()">🗑 Удалить запись</button>
+          <button type="button" class="btn-subtle" id="btn-edit-linked-task" style="display: none; color: var(--accent-primary); font-weight: 600;" onclick="App.openTaskFromTimeLogModal()">📝 Карточка задачи</button>
+        </div>
+        <div style="display: flex; gap: 8px; margin-left: auto;">
+          <button type="button" class="btn-subtle" onclick="App.closeModal('modal-manual-time-log')">Отмена</button>
+          <button type="button" class="btn-primary" onclick="App.saveManualTimeLog()">💾 Сохранить запись</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модальное окно: Создание / Редактирование базы данных -->
+  <div class="modal-overlay" id="modal-create-vault" style="display: none; z-index: 12000;">
+    <div class="modal-card" style="max-width: 520px;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modal-vault-edit-title">➕ Создать новую базу данных</h3>
+        <button class="btn-close" onclick="App.closeModal('modal-create-vault')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="modal-vault-edit-id" value="">
+
+        <div class="form-group">
+          <label for="modal-vault-name" style="cursor: pointer;">Иконка и Название базы:</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="modal-vault-icon" class="modal-input" value="💼" style="width: 50px; text-align: center; font-size: 18px; cursor: pointer;" title="Выберите иконку из палитры">
+            <input type="text" id="modal-vault-name" class="modal-input" placeholder="Например: Работа, Клиенты, Личное, Семья..." style="flex: 1; cursor: text;" autocomplete="off">
+          </div>
+          <div class="emoji-picker-container" id="vault-emoji-grid" style="margin-top: 6px;"></div>
+        </div>
+
+        <div class="form-group" id="modal-vault-path-group">
+          <label for="modal-vault-filepath" style="cursor: pointer;">Путь к файлу базы на диске (.json):</label>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <input type="text" id="modal-vault-filepath" class="modal-input" placeholder="По умолчанию в AppData (или нажмите Обзор)" style="flex: 1; font-size: 12px; cursor: pointer;" onclick="App.browseVaultSaveLocation()" title="Нажмите для выбора папки на диске" readonly>
+            <button type="button" class="btn-secondary" onclick="App.browseVaultSaveLocation()" style="white-space: nowrap; font-size: 12px; padding: 6px 12px; cursor: pointer;">📂 Обзор...</button>
+          </div>
+          <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 4px;">
+            Оставьте пустым для сохранения по умолчанию в AppData, или укажите путь на флешке / Яндекс.Диске / Dropbox.
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="modal-vault-cloud-folder" style="cursor: pointer;">Папка в облаке WebDAV (опционально):</label>
+          <input type="text" id="modal-vault-cloud-folder" class="modal-input" placeholder="Например: /Planer/Work/ или /Planer/Personal/" style="cursor: text;" autocomplete="off">
+          <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 4px;">
+            Для изоляции баз в одном облаке Mail.ru / Yandex укажите отдельную подпапку.
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 8px;">
+        <button type="button" class="btn-subtle" onclick="App.closeModal('modal-create-vault')">Отмена</button>
+        <button type="button" class="btn-primary" onclick="App.saveVaultModal()">💾 Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Всплывающий поповер точной настройки интервала времени на шкале (v1.0.68) -->
+  <div class="timeline-interval-popover" id="timeline-interval-popover" style="display: none;" onclick="event.stopPropagation()">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+      <span style="font-weight: 700; font-size: 13px; color: var(--text-main);">⏱️ Интервал времени</span>
+      <button type="button" class="btn-icon" onclick="App.closeTimelineIntervalPopover()" style="font-size: 13px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; cursor: pointer; border: none; background: transparent; color: var(--text-muted);">✕</button>
+    </div>
+    
+    <div id="popover-interval-task-title" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 275px;"></div>
+
+    <div style="display: flex; gap: 8px; margin-bottom: 10px; align-items: center;">
+      <div style="flex: 1;">
+        <label style="font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 3px; font-weight: 600;">Начало:</label>
+        <select id="popover-interval-start" class="input-select" style="width: 100%; font-size: 12px; font-weight: 600; padding: 4px 6px;" onchange="App.onPopoverStartChanged()"></select>
+      </div>
+      <div style="flex: 1;">
+        <label style="font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 3px; font-weight: 600;">Окончание:</label>
+        <select id="popover-interval-end" class="input-select" style="width: 100%; font-size: 12px; font-weight: 600; padding: 4px 6px;" onchange="App.onPopoverEndChanged()"></select>
+      </div>
+    </div>
+
+    <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px; font-weight: 600;">Быстрая длительность:</div>
+    <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px;">
+      <button type="button" class="btn-xs btn-subtle" onclick="App.setPopoverDuration(15)" style="padding: 2px 7px;">15м</button>
+      <button type="button" class="btn-xs btn-subtle" onclick="App.setPopoverDuration(30)" style="padding: 2px 7px;">30м</button>
+      <button type="button" class="btn-xs btn-subtle" onclick="App.setPopoverDuration(45)" style="padding: 2px 7px;">45м</button>
+      <button type="button" class="btn-xs btn-subtle" onclick="App.setPopoverDuration(60)" style="padding: 2px 7px;">1ч</button>
+      <button type="button" class="btn-xs btn-subtle" onclick="App.setPopoverDuration(90)" style="padding: 2px 7px;">1.5ч</button>
+      <button type="button" class="btn-xs btn-subtle" onclick="App.setPopoverDuration(120)" style="padding: 2px 7px;">2ч</button>
+      <button type="button" class="btn-xs btn-subtle" onclick="App.setPopoverDuration(180)" style="padding: 2px 7px;">3ч</button>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding-top: 10px;">
+      <button type="button" class="btn-xs btn-subtle" onclick="App.removePopoverTaskFromTimeline()" style="color: #ef4444; font-weight: 600;" title="Убрать эту задачу из расписания">Убрать со шкалы</button>
+      <button type="button" class="btn-sm btn-primary" onclick="App.saveTimelineIntervalPopover()" style="padding: 4px 12px; font-weight: 600;">Сохранить ✓</button>
+    </div>
+  </div>
+
+  <!-- Аудио-сигналы (встроены Base64, работают 100% автономно) -->
+  <audio id="audio-complete" preload="auto"></audio>
+  <audio id="audio-reminder" preload="auto"></audio>
+
+  <!-- Скрипты приложения -->
+  <script src="js/purify.min.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/timer.js"></script>
+  <script src="js/sync.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

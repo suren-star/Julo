@@ -1,8 +1,0 @@
-Traceback (most recent call last):
-  File "/tmp/localize.py", line 73, in <module>
-    node.replace_with(Comment(translate_text(str(node))))
-                              ^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/tmp/localize.py", line 37, in translate_text
-    raise RuntimeError(f'Could not translate: {core[:120]}')
-RuntimeError: Could not translate: Мгновенная инициализация сохраненной темы без мерцания
-exit_code=1

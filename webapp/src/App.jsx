@@ -1,5 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
-import { emptyWorkspace, loadWorkspace, saveWorkspace } from './lib/storage.js';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  emptyWorkspace,
+  loadWorkspace,
+  parseWorkspaceBackup,
+  saveWorkspace,
+  serializeWorkspace,
+} from './lib/storage.js';
 
 const STATUSES = [
   { id: 'todo', title: 'Անելիք', icon: '○' },
@@ -23,6 +29,7 @@ function App() {
   const [query, setQuery] = useState('');
   const [editingTask, setEditingTask] = useState(null);
   const [showTaskModal, setShowTaskModal] = useState(false);
+  const importInputRef = useRef(null);
 
   useEffect(() => {
     loadWorkspace().then((data) => {
@@ -50,6 +57,8 @@ function App() {
   }, [workspace.tasks, activeProject, view, query]);
 
   const projectName = (id) => workspace.projects.find((p) => p.id === id)?.name || 'Առանց նախագծի';
+  const projectTaskCount = (id) => workspace.tasks.filter((task) => task.projectId === id && task.status !== 'done').length;
+
   const patchTask = (id, patch) => setWorkspace((s) => ({
     ...s,
     tasks: s.tasks.map((t) => t.id === id ? { ...t, ...patch, updatedAt: new Date().toISOString() } : t),
@@ -83,6 +92,62 @@ function App() {
     setView('board');
   };
 
+  const renameProject = (project) => {
+    const name = window.prompt('Նախագծի նոր անունը', project.name);
+    if (!name?.trim() || name.trim() === project.name) return;
+    setWorkspace((s) => ({
+      ...s,
+      projects: s.projects.map((item) => item.id === project.id ? { ...item, name: name.trim() } : item),
+    }));
+  };
+
+  const removeProject = (project) => {
+    const count = workspace.tasks.filter((task) => task.projectId === project.id).length;
+    const message = count
+      ? `Ջնջե՞լ «${project.name}» նախագիծը։ ${count} առաջադրանք չի ջնջվի և կտեղափոխվի «Առանց նախագծի»։`
+      : `Ջնջե՞լ «${project.name}» նախագիծը։`;
+    if (!window.confirm(message)) return;
+    setWorkspace((s) => ({
+      ...s,
+      projects: s.projects.filter((item) => item.id !== project.id),
+      tasks: s.tasks.map((task) => task.projectId === project.id ? { ...task, projectId: '', updatedAt: new Date().toISOString() } : task),
+    }));
+    if (activeProject === project.id) {
+      setActiveProject('all');
+      setView('board');
+    }
+  };
+
+  const exportBackup = () => {
+    const blob = new Blob([serializeWorkspace(workspace)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `julo-backup-${todayKey()}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const importBackup = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      const restored = parseWorkspaceBackup(await file.text());
+      if (!window.confirm('Ներմուծումը կփոխարինի այս դիտարկիչում գտնվող Julo տվյալները։ Շարունակե՞լ։')) return;
+      setWorkspace(restored);
+      setActiveProject('all');
+      setView('board');
+      setQuery('');
+      document.documentElement.dataset.theme = restored.settings?.theme || 'light';
+      window.alert('Julo-ի պահուստային պատճենը հաջողությամբ ներմուծվեց։');
+    } catch (error) {
+      window.alert(error?.message || 'Չհաջողվեց ներմուծել պահուստային պատճենը։');
+    }
+  };
+
   const toggleTheme = () => {
     const theme = workspace.settings?.theme === 'dark' ? 'light' : 'dark';
     document.documentElement.dataset.theme = theme;
@@ -104,10 +169,27 @@ function App() {
         <div className="project-list">
           <button className={activeProject === 'all' ? 'project active' : 'project'} onClick={() => setActiveProject('all')}><span className="dot neutral" />Բոլորը</button>
           {workspace.projects.map((project) => (
-            <button key={project.id} className={activeProject === project.id ? 'project active' : 'project'} onClick={() => { setActiveProject(project.id); setView('board'); }}><span className="dot" />{project.name}</button>
+            <div className="project-row" key={project.id}>
+              <button className={activeProject === project.id ? 'project active' : 'project'} onClick={() => { setActiveProject(project.id); setView('board'); }}>
+                <span className="dot" />
+                <span className="project-name">{project.name}</span>
+                <span className="project-count">{projectTaskCount(project.id)}</span>
+              </button>
+              <div className="project-actions">
+                <button onClick={() => renameProject(project)} title="Վերանվանել նախագիծ">✎</button>
+                <button onClick={() => removeProject(project)} title="Ջնջել նախագիծ">×</button>
+              </div>
+            </div>
           ))}
         </div>
-        <div className="sidebar-footer"><span>Տվյալները պահվում են այս դիտարկիչում</span></div>
+        <div className="sidebar-footer">
+          <span>Տվյալները պահվում են այս դիտարկիչում</span>
+          <div className="data-actions">
+            <button onClick={exportBackup}>⇩ Արտահանել</button>
+            <button onClick={() => importInputRef.current?.click()}>⇧ Ներմուծել</button>
+          </div>
+          <input ref={importInputRef} className="hidden-input" type="file" accept="application/json,.json" onChange={importBackup} />
+        </div>
       </aside>
 
       <main className="main">

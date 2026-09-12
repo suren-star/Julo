@@ -8,15 +8,19 @@ test('workspace roles expose expected permissions', () => {
   assert.equal(can('member', 'tasks.create'), true);
   assert.equal(can('member', 'members.manage'), false);
   assert.equal(can('viewer', 'tasks.update'), false);
+  assert.equal(can('viewer', 'tasks.comment'), true);
   assert.equal(can('viewer', 'workspace.export'), true);
+  assert.equal(can('guest', 'tasks.comment'), false);
   assert.equal(can('guest', 'projects.create'), false);
 });
 
-test('guest permissions are scoped to assigned project role', () => {
+test('guest permissions are scoped to assigned project role without comment permission', () => {
   const guest = { role: 'guest', projectRoles: { p1: 'editor', p2: 'viewer' } };
   assert.equal(canForMember(guest, 'tasks.create', 'p1'), true);
   assert.equal(canForMember(guest, 'tasks.update', 'p1'), true);
   assert.equal(canForMember(guest, 'tasks.update', 'p2'), false);
+  assert.equal(canForMember(guest, 'tasks.comment', 'p1'), false);
+  assert.equal(canForMember(guest, 'tasks.comment', 'p2'), false);
   assert.equal(canForMember(guest, 'projects.create', 'p1'), false);
 });
 

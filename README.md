@@ -4,12 +4,13 @@ Julo is a local-first desktop planner built with Electron. The current codebase 
 
 ## Development status
 
-Julo is currently being stabilized for a public beta.
+Julo is being stabilized for a public beta.
 
 - `main` — preserved baseline imported from the original Planer codebase.
 - `beta-dev` — active development branch for the Julo beta.
-- Cloud synchronization is intentionally disabled in the current beta baseline.
-- The sync layer remains provider-agnostic so a future cloud backend can be added without coupling Julo to Mail.ru/WebDAV.
+- Current beta version: `0.1.0-beta.1`.
+- Cloud synchronization is intentionally disabled until a new provider is selected.
+- The sync layer remains provider-agnostic so a future backend can be added without coupling Julo to Mail.ru/WebDAV.
 
 ## Run locally
 
@@ -24,9 +25,10 @@ npm start
 
 ```bash
 npm run check
+npm test
 ```
 
-The same validation runs in GitHub Actions on pushes and pull requests.
+GitHub Actions runs dependency installation, syntax validation, and regression tests on beta development changes.
 
 ## Windows build
 
@@ -34,8 +36,20 @@ The same validation runs in GitHub Actions on pushes and pull requests.
 npm run build
 ```
 
-The packaged application is produced under `dist/` with the Julo executable name. The internal package name has intentionally not been changed yet because data-path migration from existing Planer installations must be handled before that rename is safe.
+The package identity and Windows executable are now `Julo`.
+
+## Data and profile migration
+
+Julo uses its own Electron profile under `%APPDATA%/Julo` on Windows. On the first Julo start, if a legacy Planer profile is found, Julo performs a non-destructive migration:
+
+- local data and backup directories are copied into the Julo profile;
+- vault paths that pointed inside the legacy Planer data directory are rewritten to the matching Julo data directory;
+- vaults stored at custom/external paths are left untouched;
+- the original Planer profile is not deleted or modified;
+- a migration marker prevents the profile copy from being repeated on later launches.
+
+Stored planner data now has an explicit schema version. Schema migration preserves tasks and ordinary settings, removes retired `settings.webdav` configuration/credentials, strips runtime-only `_vaultInfo`, and reserves a neutral `settings.sync` object for a future provider.
 
 ## Data safety
 
-Julo stores its working data locally. The existing storage layer uses atomic JSON writes and `.bak` recovery files. Before beta release we will add explicit schema/version migration checks and automated regression coverage for storage and vault operations.
+Working data is local-first. Writes use atomic JSON replacement and `.bak` recovery files. Migration behavior is covered by automated regression tests, including legacy WebDAV cleanup, idempotent schema migration, and Windows vault path rewriting.

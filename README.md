@@ -1,6 +1,6 @@
 # Julo
 
-Julo is a local-first desktop planner built with Electron. The current codebase includes task management, projects and sections, subtasks, Today and timeline views, recurring tasks, reminders, notes, attachments, time tracking, multiple local vaults, and backup/import/export.
+Julo is a local-first desktop productivity and task management app built with Electron. The current codebase includes task management, projects and sections, subtasks, Today and timeline views, recurring tasks, reminders, notes, attachments, time tracking, multiple local vaults, and backup/import/export.
 
 ## Development status
 
@@ -48,7 +48,7 @@ Julo uses its own Electron profile under `%APPDATA%/Julo` on Windows. On the fir
 - the original Planer profile is not deleted or modified;
 - a migration marker prevents the profile copy from being repeated on later launches.
 
-Stored planner data now has an explicit schema version. Schema migration preserves tasks and ordinary settings, removes retired `settings.webdav` configuration/credentials, strips runtime-only `_vaultInfo`, and reserves a neutral `settings.sync` object for a future provider.
+Stored Julo data now has an explicit schema version. Schema migration preserves tasks and ordinary settings, removes retired `settings.webdav` configuration/credentials, strips runtime-only `_vaultInfo`, and reserves a neutral `settings.sync` object for a future provider.
 
 ## Data safety
 

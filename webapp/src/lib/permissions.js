@@ -17,8 +17,14 @@ export const WORKSPACE_ROLES = {
   },
   guest: {
     label: 'Հյուր',
-    description: 'Տեսնում է միայն իրեն հասանելի դարձված նախագծերը։ Նախագծային հասանելիությունը կկառավարվի առանձին։',
+    description: 'Աշխատում է միայն իրեն հասանելի դարձված նախագծերում՝ ըստ նախագծային դերի։',
   },
+};
+
+export const PROJECT_ROLES = {
+  manager: { label: 'Կառավարիչ', description: 'Կառավարում և խմբագրում է տվյալ նախագիծն ու նրա առաջադրանքները։' },
+  editor: { label: 'Խմբագիր', description: 'Ստեղծում և խմբագրում է նախագծի առաջադրանքները։' },
+  viewer: { label: 'Դիտորդ', description: 'Միայն դիտում է տվյալ նախագիծը։' },
 };
 
 const ROLE_PERMISSIONS = {
@@ -38,11 +44,27 @@ const ROLE_PERMISSIONS = {
   guest: [],
 };
 
+const PROJECT_ROLE_PERMISSIONS = {
+  manager: ['projects.update', 'tasks.create', 'tasks.update', 'tasks.delete'],
+  editor: ['tasks.create', 'tasks.update', 'tasks.delete'],
+  viewer: [],
+};
+
 export const isWorkspaceRole = (role) => Boolean(WORKSPACE_ROLES[role]);
+export const isProjectRole = (role) => Boolean(PROJECT_ROLES[role]);
 
 export const can = (role, permission) => {
   const permissions = ROLE_PERMISSIONS[role] || [];
   return permissions.includes('*') || permissions.includes(permission);
+};
+
+export const canForMember = (member, permission, projectId = '') => {
+  if (!member) return false;
+  if (can(member.role, permission)) return true;
+  if (member.role !== 'guest' || !projectId) return false;
+  const projectRole = member.projectRoles?.[projectId];
+  const permissions = PROJECT_ROLE_PERMISSIONS[projectRole] || [];
+  return permissions.includes(permission);
 };
 
 export const canManageMemberRole = (actorRole, targetRole, nextRole) => {

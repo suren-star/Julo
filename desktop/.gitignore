@@ -1,0 +1,23 @@
+node_modules/
+dist/
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Local application data / backups
+data/
+backup/
+*.bak
+*.tmp
+*.tmp_*
+
+# Local IDE / environment files
+.vscode/
+.idea/
+.env
+.env.*
+
+# Packaged Electron output
+Julo-win32-x64/
+Planer-win32-x64/

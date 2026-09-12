@@ -724,7 +724,7 @@ const App = {
     // Запуск фонового планировщика уведомлений
     this.startNotificationScheduler();
 
-    // Инициализация облачной синхронизации WebDAV
+    // Инициализация нейтрального слоя синхронизации (provider подключается отдельно)
     if (window.SyncEngine) {
       SyncEngine.init();
       SyncEngine.subscribe((info) => {
@@ -751,11 +751,6 @@ const App = {
         this.toggleBreak();
       });
     }
-    if (window.electronAPI?.onTriggerSyncNow) {
-      window.electronAPI.onTriggerSyncNow(() => {
-        this.triggerManualSync();
-      });
-    }
 
     // Обработка горячих клавиш внутри окна программы
     document.addEventListener('keydown', (e) => {
@@ -769,7 +764,6 @@ const App = {
       const newTaskKey = hk.newTask || 'Ctrl+N';
       const searchKey = hk.searchTasks || 'Ctrl+F';
       const breakKey = hk.toggleBreak || 'Ctrl+B';
-      const syncKey = hk.syncCloud || 'Ctrl+S';
       const noteKey = hk.openNote || 'Ctrl+M';
       const expandKey = hk.toggleExpandAll || 'Ctrl+E';
 
@@ -795,9 +789,6 @@ const App = {
       } else if (!isInput && this.matchesHotkey(e, breakKey)) {
         e.preventDefault();
         this.toggleBreak();
-      } else if (!isInput && this.matchesHotkey(e, syncKey)) {
-        e.preventDefault();
-        this.triggerManualSync();
       } else if (!isInput && this.matchesHotkey(e, noteKey)) {
         e.preventDefault();
         const activeTaskId = this.data.tasks.find(t => !t.completed)?.id;
@@ -7616,64 +7607,34 @@ const App = {
     if (!this.data) return;
     if (!this.data.settings) this.data.settings = {};
 
-    // 1. WebDAV настройки активной базы
-    const webdav = this.data.settings.webdav || {};
-    const cfg = {
-      enabled: !!webdav.enabled,
-      serverUrl: webdav.serverUrl || 'https://webdav.cloud.mail.ru',
-      username: webdav.username || '',
-      password: webdav.password || '',
-      folderPath: webdav.cloudFolder || webdav.folderPath || 'PlanerSync'
-    };
-
-    const enabledCheck = document.getElementById('setting-webdav-enabled');
-    const serverInput = document.getElementById('setting-webdav-server');
-    const userInput = document.getElementById('setting-webdav-username');
-    const passInput = document.getElementById('setting-webdav-password');
-    const folderInput = document.getElementById('setting-webdav-folder');
-
-    if (enabledCheck) enabledCheck.checked = !!cfg.enabled;
-    if (serverInput) serverInput.value = cfg.serverUrl;
-    if (userInput) userInput.value = cfg.username;
-    if (passInput) passInput.value = cfg.password;
-    if (folderInput) folderInput.value = cfg.folderPath;
-
-    const fields = document.getElementById('webdav-config-fields');
-    if (fields) {
-      fields.style.opacity = cfg.enabled ? '1' : '0.9';
-    }
-
-    const msgEl = document.getElementById('webdav-status-message');
-    if (msgEl) msgEl.style.display = 'none';
-
-    // 2. Звуки
+    // 1. Звуки
     const soundCheck = document.getElementById('setting-sound-enabled');
     if (soundCheck) soundCheck.checked = this.data.settings.soundEnabled !== false;
     const toneSelect = document.getElementById('setting-sound-tone');
     if (toneSelect) toneSelect.value = this.data.settings.soundTone || 'digital';
 
-    // 3. Подпункты и напоминания
+    // 2. Подпункты и напоминания
     const subtasksSelect = document.getElementById('setting-default-subtasks');
     if (subtasksSelect) subtasksSelect.value = this.data.settings.defaultSubtasksExpanded || 'collapsed';
     const remArchiveCheck = document.getElementById('setting-reminders-in-archive');
     if (remArchiveCheck) remArchiveCheck.checked = !!this.data.settings.remindersInArchive;
 
-    // 4. Трей и автозапуск
+    // 3. Трей и автозапуск
     const trayCheck = document.getElementById('setting-minimize-to-tray');
     if (trayCheck) trayCheck.checked = this.data.settings.minimizeToTray !== false;
     const autostartCheck = document.getElementById('setting-autostart-windows');
     if (autostartCheck) autostartCheck.checked = !!this.data.settings.autostartWindows;
 
-    // 5. Тема оформления
+    // 4. Тема оформления
     const currentTheme = localStorage.getItem('planer_theme') || this.data.settings.theme || 'warm';
     document.querySelectorAll('.btn-theme').forEach(btn => btn.classList.remove('active'));
     const activeBtn = document.getElementById(`btn-theme-${currentTheme}`);
     if (activeBtn) activeBtn.classList.add('active');
 
-    // 6. Горячие клавиши
+    // 5. Горячие клавиши
     this.renderHotkeySettings();
 
-    // 7. Список баз данных
+    // 6. Список баз данных
     this.renderVaultsSettingsList();
   },
 
@@ -7684,114 +7645,8 @@ const App = {
   },
 
   // =========================================================================
-  // WebDAV Облачная синхронизация UI методы
+  // Cloud sync UI hook (kept provider-agnostic for future providers)
   // =========================================================================
-  onWebdavEnabledToggle(enabled) {
-    if (!this.data.settings) this.data.settings = {};
-    if (!this.data.settings.webdav) {
-      this.data.settings.webdav = {
-        serverUrl: 'https://webdav.cloud.mail.ru',
-        username: '',
-        password: '',
-        folderPath: 'PlanerSync'
-      };
-    }
-    this.data.settings.webdav.enabled = enabled;
-    this.saveData();
-
-    const fields = document.getElementById('webdav-config-fields');
-    if (fields) {
-      fields.style.opacity = enabled ? '1' : '0.9';
-    }
-
-    if (enabled && window.SyncEngine) {
-      SyncEngine.sync();
-    } else if (window.SyncEngine) {
-      SyncEngine.updateStatus('disabled');
-    }
-  },
-
-  toggleWebdavPasswordVisibility() {
-    const input = document.getElementById('setting-webdav-password');
-    if (input) {
-      input.type = input.type === 'password' ? 'text' : 'password';
-    }
-  },
-
-  async saveWebdavSettingsAndTest() {
-    const serverUrl = document.getElementById('setting-webdav-server')?.value.trim() || 'https://webdav.cloud.mail.ru';
-    const username = document.getElementById('setting-webdav-username')?.value.trim() || '';
-    const password = document.getElementById('setting-webdav-password')?.value.trim() || '';
-    const folderPath = document.getElementById('setting-webdav-folder')?.value.trim() || 'PlanerSync';
-
-    // Автоматически включаем синхронизацию при сохранении валидных реквизитов
-    let enabled = document.getElementById('setting-webdav-enabled')?.checked || false;
-    if (username && password) {
-      enabled = true;
-      const chk = document.getElementById('setting-webdav-enabled');
-      if (chk) chk.checked = true;
-    }
-
-    if (!this.data.settings) this.data.settings = {};
-    this.data.settings.webdav = {
-      enabled,
-      serverUrl,
-      username,
-      password,
-      folderPath,
-      cloudFolder: folderPath
-    };
-
-    await this.saveData();
-
-    const msgEl = document.getElementById('webdav-status-message');
-    if (msgEl) {
-      msgEl.style.display = 'block';
-      msgEl.className = 'status-msg-info';
-      msgEl.textContent = '🔄 Проверка подключения к WebDAV серверу...';
-    }
-
-    if (!username || !password) {
-      if (msgEl) {
-        msgEl.className = 'status-msg-error';
-        msgEl.textContent = '⚠️ Введите Email (логин) и пароль для WebDAV';
-      }
-      return;
-    }
-
-    const res = await SyncEngine.testConnection(this.data.settings.webdav);
-    if (res.success) {
-      if (msgEl) {
-        msgEl.className = 'status-msg-success';
-        msgEl.textContent = `✅ ${res.message || 'Подключение успешно!'}`;
-      }
-      // Запускаем первую синхронизацию
-      if (enabled) {
-        SyncEngine.sync({ force: true });
-      }
-    } else {
-      if (msgEl) {
-        msgEl.className = 'status-msg-error';
-        msgEl.textContent = `❌ ${res.error || 'Ошибка подключения'}`;
-      }
-    }
-  },
-
-  triggerManualSync() {
-    if (!window.SyncEngine) return;
-    if (!SyncEngine.isConfiguredAndEnabled()) {
-      this.openSettingsModal();
-      const msgEl = document.getElementById('webdav-status-message');
-      if (msgEl) {
-        msgEl.style.display = 'block';
-        msgEl.className = 'status-msg-error';
-        msgEl.textContent = '⚠️ Для синхронизации укажите логин и пароль WebDAV и включите галочку синхронизации.';
-      }
-      return;
-    }
-    SyncEngine.sync({ force: true });
-  },
-
   updateSyncUI(info) {
     const btn = document.getElementById('sidebar-sync-btn');
     const icon = document.getElementById('sidebar-sync-icon');
@@ -7804,9 +7659,9 @@ const App = {
 
     if (!info.isEnabled) {
       icon.textContent = '☁️';
-      label.textContent = 'Облако: Выкл';
+      label.textContent = 'Облако: не настроено';
       if (spinner) spinner.style.display = 'none';
-      btn.title = 'Облачная синхронизация выключена (нажмите для настройки)';
+      btn.title = 'Облачный provider пока не подключен';
       return;
     }
 
@@ -7937,7 +7792,6 @@ const App = {
     document.getElementById('modal-vault-icon').value = '💼';
     document.getElementById('modal-vault-name').value = '';
     document.getElementById('modal-vault-filepath').value = '';
-    document.getElementById('modal-vault-cloud-folder').value = '';
 
     const pathGroup = document.getElementById('modal-vault-path-group');
     if (pathGroup) pathGroup.style.display = 'block';
@@ -7964,7 +7818,6 @@ const App = {
     document.getElementById('modal-vault-icon').value = vault.icon || '📁';
     document.getElementById('modal-vault-name').value = vault.name || '';
     document.getElementById('modal-vault-filepath').value = vault.filePath || '';
-    document.getElementById('modal-vault-cloud-folder').value = (this.data?.settings?.webdav?.cloudFolder) || '';
 
     const pathGroup = document.getElementById('modal-vault-path-group');
     if (pathGroup) pathGroup.style.display = 'none';
@@ -7982,7 +7835,7 @@ const App = {
   },
 
   async browseVaultSaveLocation() {
-    const name = document.getElementById('modal-vault-name').value.trim() || 'planer_db';
+    const name = document.getElementById('modal-vault-name').value.trim() || 'julo_db';
     const cleanName = name.replace(/[^\w\u0400-\u04FF]/gi, '_');
     const res = await Storage.chooseVaultFilePath(cleanName);
     if (res && res.success && res.filePath) {
@@ -7995,7 +7848,6 @@ const App = {
     const icon = document.getElementById('modal-vault-icon').value.trim() || '💼';
     const name = document.getElementById('modal-vault-name').value.trim() || 'Без названия';
     const customFilePath = document.getElementById('modal-vault-filepath').value.trim();
-    const cloudFolder = document.getElementById('modal-vault-cloud-folder').value.trim();
 
     if (editId) {
       // Редактирование существующей базы
@@ -8003,12 +7855,6 @@ const App = {
       if (this.activeVault && this.activeVault.id === editId) {
         this.activeVault.name = name;
         this.activeVault.icon = icon;
-        if (cloudFolder) {
-          if (!this.data.settings) this.data.settings = {};
-          if (!this.data.settings.webdav) this.data.settings.webdav = {};
-          this.data.settings.webdav.cloudFolder = cloudFolder;
-          this.saveData();
-        }
         this.renderSidebarVaultBadge();
       }
       this.closeModal('modal-create-vault');
@@ -8028,11 +7874,6 @@ const App = {
 
       this.data = res.data;
       this.activeVault = res.vaultInfo;
-      if (cloudFolder) {
-        if (!this.data.settings) this.data.settings = {};
-        if (!this.data.settings.webdav) this.data.settings.webdav = {};
-        this.data.settings.webdav.cloudFolder = cloudFolder;
-      }
       this.normalizeAllData();
       const activeTheme = localStorage.getItem('planer_theme') || this.data.settings?.theme || 'warm';
       this.applyTheme(activeTheme);
@@ -10275,12 +10116,6 @@ const App = {
       title: 'Начать / Стоп перерыв ☕',
       desc: 'Включает или останавливает таймер отдыха (по умолчанию Ctrl+B)',
       default: 'Ctrl+B'
-    },
-    {
-      id: 'syncCloud',
-      title: 'Синхронизация с облаком ☁️',
-      desc: 'Запускает принудительную синхронизацию с WebDAV облаком (по умолчанию Ctrl+S)',
-      default: 'Ctrl+S'
     },
     {
       id: 'openNote',

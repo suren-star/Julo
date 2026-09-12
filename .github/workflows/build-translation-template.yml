@@ -1,0 +1,63 @@
+name: Build translation template
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-translation-template.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate editable translation TXT
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          source = Path('localization-catalog.json')
+          data = json.loads(source.read_text(encoding='utf-8'))
+          entries = data.get('entries', [])
+
+          out = []
+          out.append('JULO TRANSLATION CATALOG')
+          out.append('========================')
+          out.append('')
+          out.append('Լրացման կանոններ / Editing rules:')
+          out.append('- ID դաշտը ՉՓՈԽԵԼ / Do not change ID.')
+          out.append('- RUSSIAN դաշտը ՉՓՈԽԵԼ / Do not change RUSSIAN.')
+          out.append('- ENGLISH և ARMENIAN դաշտերում գրեք միայն թարգմանությունը:')
+          out.append('- Դատարկ դաշտերը թույլատրելի են. դրանք կթողնվեն չթարգմանված մինչև հաջորդ փուլը:')
+          out.append('')
+          out.append(f'TOTAL: {len(entries)}')
+          out.append('')
+
+          for i, entry in enumerate(entries, 1):
+              text = str(entry.get('text', '')).replace('\r\n', '\n').replace('\r', '\n')
+              ident = f'JULO-{i:04d}'
+              out.append('------------------------------------------------------------')
+              out.append(f'ID: {ident}')
+              out.append('RUSSIAN:')
+              out.append(text)
+              out.append('ENGLISH:')
+              out.append('')
+              out.append('ARMENIAN:')
+              out.append('')
+              out.append('')
+
+          Path('JULO_TRANSLATIONS.txt').write_text('\n'.join(out), encoding='utf-8')
+          PY
+
+      - name: Commit template
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add JULO_TRANSLATIONS.txt
+          git commit -m "chore: add editable Julo translation catalog"
+          git push origin HEAD:main

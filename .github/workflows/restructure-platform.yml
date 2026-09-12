@@ -1,0 +1,443 @@
+name: Restructure Julo platforms
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/restructure-platform.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  restructure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Import latest desktop baseline from beta-dev
+        run: |
+          set -euo pipefail
+          git fetch origin beta-dev
+          rm -rf main.js preload.js package.json package-lock.json run.bat src lib tests .gitignore README.md desktop webapp
+          mkdir -p desktop
+          git archive origin/beta-dev main.js preload.js package.json package-lock.json run.bat src lib tests .gitignore | tar -x -C desktop
+
+      - name: Create Armenian desktop documentation
+        run: |
+          cat > desktop/README.md <<'EOF'
+          # Julo Desktop
+
+          Julo-ի համակարգչային տարբերակը նախատեսված է Windows-ում անձնական առաջադրանքների, նախագծերի, ժամանակացույցի և ժամանակի հաշվառման համար։
+
+          ## Գործարկում
+
+          ```bash
+          npm install
+          npm start
+          ```
+
+          ## Ստուգումներ
+
+          ```bash
+          npm run check
+          npm test
+          ```
+
+          ## Windows build
+
+          ```bash
+          npm run build
+          ```
+
+          Տվյալները պահվում են տեղային։ Ամպային համաժամանակեցման provider այս փուլում միացված չէ։ Հին Planer profile-ի migration-ը պահպանված է միայն նախկին տվյալները անվտանգ տեղափոխելու համար։
+          EOF
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('desktop/package.json')
+          data=json.loads(p.read_text(encoding='utf-8'))
+          data['description']='Julo-ի համակարգչային տարբերակ՝ առաջադրանքների, նախագծերի և ժամանակի կառավարման համար'
+          data['keywords']=['task-manager','project-management','todo','electron','time-tracking','julo']
+          p.write_text(json.dumps(data, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
+          PY
+
+      - name: Create standalone Julo Web app
+        run: |
+          mkdir -p webapp/src/lib
+          cat > webapp/package.json <<'EOF'
+          {
+            "name": "julo-webapp",
+            "private": true,
+            "version": "0.1.0-beta.1",
+            "type": "module",
+            "scripts": {
+              "dev": "vite",
+              "build": "vite build",
+              "preview": "vite preview"
+            },
+            "dependencies": {
+              "react": "^19.1.1",
+              "react-dom": "^19.1.1"
+            },
+            "devDependencies": {
+              "@vitejs/plugin-react": "^7.0.0",
+              "vite": "^7.1.5"
+            }
+          }
+          EOF
+
+          cat > webapp/index.html <<'EOF'
+          <!doctype html>
+          <html lang="hy">
+            <head>
+              <meta charset="UTF-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+              <meta name="theme-color" content="#111827" />
+              <meta name="description" content="Julo՝ նախագծերի և առաջադրանքների կառավարման վեբ հարթակ" />
+              <title>Julo</title>
+            </head>
+            <body>
+              <div id="root"></div>
+              <script type="module" src="/src/main.jsx"></script>
+            </body>
+          </html>
+          EOF
+
+          cat > webapp/vite.config.js <<'EOF'
+          import { defineConfig } from 'vite';
+          import react from '@vitejs/plugin-react';
+
+          export default defineConfig({
+            plugins: [react()],
+            server: { port: 5173 },
+          });
+          EOF
+
+          cat > webapp/src/lib/storage.js <<'EOF'
+          const STORAGE_KEY = 'julo_web_workspace_v1';
+
+          export const emptyWorkspace = () => ({
+            version: 1,
+            projects: [],
+            tasks: [],
+            settings: { theme: 'light' },
+          });
+
+          export const localStorageProvider = {
+            async load() {
+              try {
+                const raw = window.localStorage.getItem(STORAGE_KEY);
+                return raw ? { ...emptyWorkspace(), ...JSON.parse(raw) } : emptyWorkspace();
+              } catch {
+                return emptyWorkspace();
+              }
+            },
+            async save(state) {
+              window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            },
+          };
+
+          let provider = localStorageProvider;
+          export const setStorageProvider = (nextProvider) => { provider = nextProvider; };
+          export const loadWorkspace = () => provider.load();
+          export const saveWorkspace = (state) => provider.save(state);
+          EOF
+
+          cat > webapp/src/main.jsx <<'EOF'
+          import React from 'react';
+          import { createRoot } from 'react-dom/client';
+          import App from './App.jsx';
+          import './styles.css';
+
+          createRoot(document.getElementById('root')).render(
+            <React.StrictMode><App /></React.StrictMode>,
+          );
+          EOF
+
+          cat > webapp/src/App.jsx <<'EOF'
+          import { useEffect, useMemo, useState } from 'react';
+          import { emptyWorkspace, loadWorkspace, saveWorkspace } from './lib/storage.js';
+
+          const STATUSES = [
+            { id: 'todo', title: 'Անելիք', icon: '○' },
+            { id: 'doing', title: 'Ընթացքում', icon: '◐' },
+            { id: 'done', title: 'Ավարտված', icon: '●' },
+          ];
+          const PRIORITIES = {
+            low: { label: 'Ցածր', icon: '↓' },
+            normal: { label: 'Սովորական', icon: '–' },
+            high: { label: 'Բարձր', icon: '↑' },
+            urgent: { label: 'Շտապ', icon: '!' },
+          };
+          const uid = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          const todayKey = () => new Date().toISOString().slice(0, 10);
+
+          function App() {
+            const [workspace, setWorkspace] = useState(emptyWorkspace());
+            const [ready, setReady] = useState(false);
+            const [view, setView] = useState('board');
+            const [activeProject, setActiveProject] = useState('all');
+            const [query, setQuery] = useState('');
+            const [editingTask, setEditingTask] = useState(null);
+            const [showTaskModal, setShowTaskModal] = useState(false);
+
+            useEffect(() => {
+              loadWorkspace().then((data) => {
+                setWorkspace(data);
+                document.documentElement.dataset.theme = data.settings?.theme || 'light';
+                setReady(true);
+              });
+            }, []);
+
+            useEffect(() => {
+              if (ready) saveWorkspace(workspace);
+            }, [workspace, ready]);
+
+            const tasks = useMemo(() => {
+              const q = query.trim().toLocaleLowerCase('hy-AM');
+              return workspace.tasks.filter((task) => {
+                if (activeProject !== 'all' && task.projectId !== activeProject) return false;
+                if (view === 'today' && task.dueDate !== todayKey()) return false;
+                if (view === 'done' && task.status !== 'done') return false;
+                if (view !== 'done' && view !== 'board' && view !== 'today' && task.status === 'done') return false;
+                if (view === 'all' && task.status === 'done') return false;
+                if (!q) return true;
+                return [task.title, task.description, ...(task.tags || [])].join(' ').toLocaleLowerCase('hy-AM').includes(q);
+              });
+            }, [workspace.tasks, activeProject, view, query]);
+
+            const projectName = (id) => workspace.projects.find((p) => p.id === id)?.name || 'Առանց նախագծի';
+            const patchTask = (id, patch) => setWorkspace((s) => ({
+              ...s,
+              tasks: s.tasks.map((t) => t.id === id ? { ...t, ...patch, updatedAt: new Date().toISOString() } : t),
+            }));
+            const deleteTask = (id) => setWorkspace((s) => ({ ...s, tasks: s.tasks.filter((t) => t.id !== id) }));
+
+            const openNewTask = (status = 'todo') => {
+              setEditingTask({
+                id: null, title: '', description: '', status,
+                projectId: activeProject === 'all' ? '' : activeProject,
+                priority: 'normal', dueDate: '', tags: [],
+              });
+              setShowTaskModal(true);
+            };
+
+            const saveTask = (task) => {
+              const clean = { ...task, title: task.title.trim(), tags: task.tags.filter(Boolean) };
+              if (!clean.title) return;
+              setWorkspace((s) => clean.id
+                ? { ...s, tasks: s.tasks.map((t) => t.id === clean.id ? { ...t, ...clean, updatedAt: new Date().toISOString() } : t) }
+                : { ...s, tasks: [...s.tasks, { ...clean, id: uid('task'), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] });
+              setShowTaskModal(false);
+            };
+
+            const addProject = () => {
+              const name = window.prompt('Նոր նախագծի անունը');
+              if (!name?.trim()) return;
+              const project = { id: uid('project'), name: name.trim(), createdAt: new Date().toISOString() };
+              setWorkspace((s) => ({ ...s, projects: [...s.projects, project] }));
+              setActiveProject(project.id);
+              setView('board');
+            };
+
+            const toggleTheme = () => {
+              const theme = workspace.settings?.theme === 'dark' ? 'light' : 'dark';
+              document.documentElement.dataset.theme = theme;
+              setWorkspace((s) => ({ ...s, settings: { ...s.settings, theme } }));
+            };
+
+            return (
+              <div className="app-shell">
+                <aside className="sidebar">
+                  <div className="brand"><div className="brand-mark">J</div><div><strong>Julo</strong><span>աշխատանքային տարածք</span></div></div>
+                  <button className="primary full" onClick={() => openNewTask()}>＋ Նոր առաջադրանք</button>
+                  <nav className="nav-list">
+                    <Nav active={view === 'board'} onClick={() => setView('board')} icon="▦">Տախտակ</Nav>
+                    <Nav active={view === 'today'} onClick={() => setView('today')} icon="◷">Այսօր</Nav>
+                    <Nav active={view === 'all'} onClick={() => setView('all')} icon="☷">Բոլոր առաջադրանքները</Nav>
+                    <Nav active={view === 'done'} onClick={() => setView('done')} icon="✓">Ավարտված</Nav>
+                  </nav>
+                  <div className="section-title"><span>Նախագծեր</span><button onClick={addProject} title="Ավելացնել նախագիծ">＋</button></div>
+                  <div className="project-list">
+                    <button className={activeProject === 'all' ? 'project active' : 'project'} onClick={() => setActiveProject('all')}><span className="dot neutral" />Բոլորը</button>
+                    {workspace.projects.map((project) => (
+                      <button key={project.id} className={activeProject === project.id ? 'project active' : 'project'} onClick={() => { setActiveProject(project.id); setView('board'); }}><span className="dot" />{project.name}</button>
+                    ))}
+                  </div>
+                  <div className="sidebar-footer"><span>Տվյալները պահվում են այս դիտարկիչում</span></div>
+                </aside>
+
+                <main className="main">
+                  <header className="topbar">
+                    <div>
+                      <p className="eyebrow">JULO / {activeProject === 'all' ? 'ԱՇԽԱՏԱՆՔԱՅԻՆ ՏԱՐԱԾՔ' : 'ՆԱԽԱԳԻԾ'}</p>
+                      <h1>{view === 'today' ? 'Այսօրվա աշխատանքը' : view === 'done' ? 'Ավարտված առաջադրանքներ' : view === 'all' ? 'Բոլոր առաջադրանքները' : activeProject === 'all' ? 'Աշխատանքային տախտակ' : projectName(activeProject)}</h1>
+                    </div>
+                    <div className="top-actions">
+                      <label className="search"><span>⌕</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Որոնել առաջադրանքներ…" /></label>
+                      <button className="icon-button" onClick={toggleTheme} title="Փոխել թեման">◐</button>
+                      <button className="primary" onClick={() => openNewTask()}>＋ Ավելացնել</button>
+                    </div>
+                  </header>
+
+                  {view === 'board' ? (
+                    <div className="board">
+                      {STATUSES.map((status) => (
+                        <section className="column" key={status.id} onDragOver={(e) => e.preventDefault()} onDrop={(e) => patchTask(e.dataTransfer.getData('text/task-id'), { status: status.id })}>
+                          <div className="column-head"><div><span className={`status-icon ${status.id}`}>{status.icon}</span><strong>{status.title}</strong><span className="count">{tasks.filter((t) => t.status === status.id).length}</span></div><button onClick={() => openNewTask(status.id)}>＋</button></div>
+                          <div className="cards">
+                            {tasks.filter((t) => t.status === status.id).map((task) => <TaskCard key={task.id} task={task} project={projectName(task.projectId)} onOpen={() => { setEditingTask(task); setShowTaskModal(true); }} onDragStart={(e) => e.dataTransfer.setData('text/task-id', task.id)} />)}
+                            <button className="add-card" onClick={() => openNewTask(status.id)}>＋ Ավելացնել առաջադրանք</button>
+                          </div>
+                        </section>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="list-view">
+                      {tasks.length === 0 ? <EmptyState onAdd={() => openNewTask()} /> : tasks.map((task) => (
+                        <button className="list-task" key={task.id} onClick={() => { setEditingTask(task); setShowTaskModal(true); }}>
+                          <span className={`check ${task.status === 'done' ? 'checked' : ''}`} onClick={(e) => { e.stopPropagation(); patchTask(task.id, { status: task.status === 'done' ? 'todo' : 'done' }); }}>{task.status === 'done' ? '✓' : ''}</span>
+                          <span className="list-main"><strong>{task.title}</strong><small>{projectName(task.projectId)}{task.dueDate ? ` · ${task.dueDate}` : ''}</small></span>
+                          <span className={`priority ${task.priority}`}>{PRIORITIES[task.priority]?.icon}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </main>
+
+                {showTaskModal && <TaskModal task={editingTask} projects={workspace.projects} onClose={() => setShowTaskModal(false)} onSave={saveTask} onDelete={(id) => { deleteTask(id); setShowTaskModal(false); }} />}
+              </div>
+            );
+          }
+
+          function Nav({ active, icon, children, onClick }) { return <button className={active ? 'nav active' : 'nav'} onClick={onClick}><span>{icon}</span>{children}</button>; }
+
+          function TaskCard({ task, project, onOpen, onDragStart }) {
+            return <article className="task-card" draggable onDragStart={onDragStart} onClick={onOpen}>
+              <div className="card-top"><span className={`priority-pill ${task.priority}`}>{PRIORITIES[task.priority]?.label}</span><span className="drag">⋮⋮</span></div>
+              <h3>{task.title}</h3>
+              {task.description && <p>{task.description}</p>}
+              {(task.tags || []).length > 0 && <div className="tags">{task.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div>}
+              <div className="card-meta"><span>▣ {project}</span>{task.dueDate && <span className={task.dueDate < todayKey() && task.status !== 'done' ? 'overdue' : ''}>◷ {task.dueDate}</span>}</div>
+            </article>;
+          }
+
+          function TaskModal({ task, projects, onClose, onSave, onDelete }) {
+            const [draft, setDraft] = useState({ ...task, tags: task.tags || [] });
+            const set = (key, value) => setDraft((d) => ({ ...d, [key]: value }));
+            return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+              <div className="modal-head"><div><p className="eyebrow">ԱՌԱՋԱԴՐԱՆՔ</p><h2>{draft.id ? 'Խմբագրել առաջադրանքը' : 'Նոր առաջադրանք'}</h2></div><button className="icon-button" onClick={onClose}>×</button></div>
+              <label className="field"><span>Վերնագիր</span><input autoFocus value={draft.title} onChange={(e) => set('title', e.target.value)} placeholder="Ի՞նչ պետք է անել" /></label>
+              <label className="field"><span>Նկարագրություն</span><textarea rows="4" value={draft.description} onChange={(e) => set('description', e.target.value)} placeholder="Մանրամասներ, հղումներ կամ նշումներ…" /></label>
+              <div className="field-grid">
+                <label className="field"><span>Նախագիծ</span><select value={draft.projectId} onChange={(e) => set('projectId', e.target.value)}><option value="">Առանց նախագծի</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+                <label className="field"><span>Կարգավիճակ</span><select value={draft.status} onChange={(e) => set('status', e.target.value)}>{STATUSES.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}</select></label>
+                <label className="field"><span>Առաջնահերթություն</span><select value={draft.priority} onChange={(e) => set('priority', e.target.value)}>{Object.entries(PRIORITIES).map(([id, p]) => <option key={id} value={id}>{p.label}</option>)}</select></label>
+                <label className="field"><span>Վերջնաժամկետ</span><input type="date" value={draft.dueDate} onChange={(e) => set('dueDate', e.target.value)} /></label>
+              </div>
+              <label className="field"><span>Պիտակներ</span><input value={draft.tags.join(', ')} onChange={(e) => set('tags', e.target.value.split(',').map((x) => x.trim()))} placeholder="օրինակ՝ դիզայն, հաճախորդ" /></label>
+              <div className="modal-actions">{draft.id ? <button className="danger" onClick={() => onDelete(draft.id)}>Ջնջել</button> : <span />}<div><button className="ghost" onClick={onClose}>Չեղարկել</button><button className="primary" onClick={() => onSave(draft)}>Պահպանել</button></div></div>
+            </div></div>;
+          }
+
+          function EmptyState({ onAdd }) { return <div className="empty"><div>✓</div><h2>Այստեղ դեռ առաջադրանքներ չկան</h2><p>Ստեղծեք առաջին առաջադրանքը և սկսեք կազմակերպել աշխատանքը Julo-ում։</p><button className="primary" onClick={onAdd}>＋ Ստեղծել առաջադրանք</button></div>; }
+
+          export default App;
+          EOF
+
+          cat > webapp/src/styles.css <<'EOF'
+          :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#18212f;background:#f4f6f9;font-synthesis:none;--bg:#f4f6f9;--panel:#fff;--panel-2:#f8fafc;--text:#18212f;--muted:#6b7280;--border:#e5e7eb;--accent:#5b5bd6;--accent-2:#4f46e5;--shadow:0 10px 30px rgba(15,23,42,.08)}:root[data-theme="dark"]{--bg:#0e1117;--panel:#151a23;--panel-2:#1a202b;--text:#edf2f7;--muted:#929baa;--border:#2a3240;--shadow:0 16px 40px rgba(0,0,0,.25)}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text)}button,input,select,textarea{font:inherit}button{color:inherit}.app-shell{display:grid;grid-template-columns:245px minmax(0,1fr);min-height:100vh}.sidebar{position:sticky;top:0;height:100vh;background:#111827;color:#e5e7eb;padding:22px 16px;display:flex;flex-direction:column;border-right:1px solid #202938}.brand{display:flex;align-items:center;gap:11px;padding:0 6px 22px}.brand-mark{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#7c3aed,#4f46e5);display:grid;place-items:center;font-weight:800;color:white}.brand strong{display:block;font-size:18px}.brand span{font-size:11px;color:#8f9aac}.primary,.ghost,.danger,.icon-button{border:0;border-radius:9px;cursor:pointer}.primary{background:var(--accent);color:white;padding:10px 14px;font-weight:650}.primary:hover{background:var(--accent-2)}.full{width:100%;margin-bottom:18px}.nav-list,.project-list{display:grid;gap:4px}.nav,.project{width:100%;display:flex;align-items:center;gap:10px;border:0;background:transparent;color:#aeb7c7;border-radius:8px;padding:9px 10px;text-align:left;cursor:pointer}.nav:hover,.nav.active,.project:hover,.project.active{background:#1f2937;color:white}.nav span{width:18px;text-align:center}.section-title{display:flex;align-items:center;justify-content:space-between;margin:24px 8px 8px;text-transform:uppercase;letter-spacing:.08em;font-size:10px;font-weight:800;color:#6f7b8d}.section-title button{background:transparent;border:0;color:#9ca3af;cursor:pointer;font-size:18px}.dot{width:8px;height:8px;border-radius:50%;background:#8b5cf6}.dot.neutral{background:#64748b}.sidebar-footer{margin-top:auto;padding:18px 8px 0;border-top:1px solid #253044;font-size:11px;color:#6f7b8d}.main{min-width:0;padding:28px 30px}.topbar{display:flex;justify-content:space-between;gap:24px;align-items:center;margin-bottom:28px}.eyebrow{font-size:10px;letter-spacing:.12em;font-weight:800;color:#8a94a3;margin:0 0 6px}.topbar h1,.modal h2{margin:0;font-size:25px;letter-spacing:-.03em}.top-actions{display:flex;align-items:center;gap:10px}.search{height:40px;display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:0 11px;color:var(--muted)}.search input{border:0;outline:0;background:transparent;color:var(--text);width:220px}.icon-button{width:40px;height:40px;background:var(--panel);border:1px solid var(--border);font-size:18px}.board{display:grid;grid-template-columns:repeat(3,minmax(260px,1fr));gap:16px;align-items:start}.column{background:var(--panel-2);border:1px solid var(--border);border-radius:13px;min-height:65vh;padding:12px}.column-head{display:flex;justify-content:space-between;align-items:center;padding:4px 4px 12px}.column-head>div{display:flex;align-items:center;gap:8px}.column-head button,.add-card{border:0;background:transparent;color:var(--muted);cursor:pointer}.count{font-size:11px;background:var(--border);padding:2px 7px;border-radius:10px;color:var(--muted)}.status-icon.todo{color:#64748b}.status-icon.doing{color:#f59e0b}.status-icon.done{color:#10b981}.cards{display:grid;gap:9px}.task-card{background:var(--panel);border:1px solid var(--border);border-radius:11px;padding:14px;box-shadow:0 1px 2px rgba(15,23,42,.02);cursor:pointer}.task-card:hover{box-shadow:var(--shadow);transform:translateY(-1px)}.card-top,.card-meta{display:flex;justify-content:space-between;align-items:center;gap:10px}.drag{color:#c0c6d0}.task-card h3{font-size:14px;line-height:1.35;margin:12px 0 7px}.task-card p{font-size:12px;color:var(--muted);line-height:1.5;margin:0 0 12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.priority-pill{font-size:10px;font-weight:750;border-radius:12px;padding:3px 7px;background:#eef2ff;color:#4f46e5}.priority-pill.high,.priority-pill.urgent{background:#fff1f2;color:#e11d48}.priority-pill.low{background:#ecfdf5;color:#059669}.card-meta{margin-top:13px;padding-top:10px;border-top:1px solid var(--border);font-size:10px;color:var(--muted)}.overdue{color:#e11d48}.tags{display:flex;gap:5px;flex-wrap:wrap}.tags span{font-size:10px;background:var(--panel-2);border:1px solid var(--border);border-radius:5px;padding:2px 5px;color:var(--muted)}.add-card{text-align:left;padding:9px 7px;border-radius:8px}.add-card:hover{background:var(--panel);color:var(--text)}.list-view{max-width:950px;background:var(--panel);border:1px solid var(--border);border-radius:13px;overflow:hidden}.list-task{width:100%;border:0;border-bottom:1px solid var(--border);background:transparent;padding:13px 16px;display:flex;align-items:center;gap:12px;text-align:left;cursor:pointer}.list-task:last-child{border-bottom:0}.list-task:hover{background:var(--panel-2)}.check{width:19px;height:19px;border:1.5px solid #aab2c0;border-radius:50%;display:grid;place-items:center;font-size:11px}.check.checked{background:#10b981;border-color:#10b981;color:#fff}.list-main{display:grid;gap:3px;flex:1}.list-main strong{font-size:13px}.list-main small{font-size:11px;color:var(--muted)}.priority{font-weight:800}.priority.high,.priority.urgent{color:#e11d48}.priority.low{color:#059669}.modal-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.55);display:grid;place-items:center;padding:24px;z-index:20}.modal{width:min(680px,100%);background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:22px;box-shadow:0 25px 70px rgba(0,0,0,.28)}.modal-head{display:flex;align-items:start;justify-content:space-between;margin-bottom:20px}.field{display:grid;gap:7px;margin-bottom:14px}.field>span{font-size:11px;font-weight:700;color:var(--muted)}.field input,.field textarea,.field select{width:100%;border:1px solid var(--border);background:var(--panel-2);color:var(--text);border-radius:9px;padding:10px 11px;outline:none}.field input:focus,.field textarea:focus,.field select:focus{border-color:#7777df;box-shadow:0 0 0 3px rgba(91,91,214,.12)}.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}.modal-actions{display:flex;justify-content:space-between;align-items:center;margin-top:20px}.modal-actions>div{display:flex;gap:8px}.ghost{background:var(--panel-2);border:1px solid var(--border);padding:9px 13px}.danger{background:#fff1f2;color:#be123c;padding:9px 13px}.empty{text-align:center;padding:70px 20px}.empty>div{width:56px;height:56px;margin:0 auto 15px;border-radius:50%;display:grid;place-items:center;background:#ecfdf5;color:#059669;font-size:24px}.empty h2{margin:0 0 8px}.empty p{color:var(--muted);font-size:13px;margin:0 0 18px}@media(max-width:1000px){.app-shell{grid-template-columns:200px minmax(0,1fr)}.board{grid-template-columns:1fr}.column{min-height:auto}.topbar{align-items:flex-start;flex-direction:column}.top-actions{width:100%}.search{flex:1}.search input{width:100%}}@media(max-width:720px){.app-shell{display:block}.sidebar{position:relative;height:auto}.project-list,.sidebar-footer{display:none}.main{padding:20px 14px}.top-actions{flex-wrap:wrap}.search{order:3;flex-basis:100%}.field-grid{grid-template-columns:1fr}}
+          EOF
+
+          cat > webapp/README.md <<'EOF'
+          # Julo Web
+
+          Julo Web-ը նախագծերի և առաջադրանքների կառավարման առանձին վեբ հավելված է։ Այն չի օգտագործում Desktop տարբերակի Electron/Planer legacy code-ը։
+
+          ## Այս beta հիմքում կա
+
+          - Kanban տախտակ՝ «Անելիք / Ընթացքում / Ավարտված» կարգավիճակներով
+          - drag-and-drop կարգավիճակի փոփոխություն
+          - նախագծեր և նախագծով ֆիլտրում
+          - «Այսօր», «Բոլոր առաջադրանքները» և «Ավարտված» դիտումներ
+          - որոնում
+          - առաջնահերթություն, վերջնաժամկետ, պիտակներ և նկարագրություն
+          - light/dark թեմա
+          - local-first storage provider, որը հետագայում հնարավոր է փոխարինել API/cloud provider-ով
+          - դատարկ workspace՝ առանց demo/legacy տվյալների
+
+          ## Գործարկում
+
+          ```bash
+          npm install
+          npm run dev
+          ```
+
+          ## Production build
+
+          ```bash
+          npm run build
+          ```
+          EOF
+
+      - name: Create root project documentation and ignore rules
+        run: |
+          cat > README.md <<'EOF'
+          # Julo
+
+          Julo-ն աշխատանքի, նախագծերի և առաջադրանքների կառավարման հարթակ է։ Repository-ն բաժանված է երկու անկախ հավելվածի։
+
+          ## `desktop/`
+
+          Համակարգչային տարբերակ՝ Electron-ի հիմքով։ Այն պահպանում է ներկայիս Julo Desktop ֆունկցիոնալը և հին Planer տվյալների անվտանգ migration-ը։ Desktop տարբերակը այս փուլում ֆունկցիոնալորեն սառեցված է։
+
+          ## `webapp/`
+
+          Julo-ի նոր վեբ հավելվածը՝ նախատեսված նախագծերի և թիմային աշխատանքի ուղղությամբ զարգացնելու համար՝ Trello/Monday դասի աշխատանքային տրամաբանությամբ։ Այն կառուցված է առանձին և չի ժառանգում Planer-ի legacy UI/code-ը։
+
+          Webapp-ը հիմա local-first է։ Հետագայում այստեղ կավելացվեն backend, հաշիվներ, թիմեր, permissions և cloud sync։
+
+          ## Լեզու
+
+          Julo-ի user-facing հիմնական լեզուն հայերենն է։ Legacy անունները կարող են պահպանվել միայն տեխնիկական migration-ի այն հատվածներում, որտեղ դրանց փոփոխությունը կարող է կոտրել հին տվյալների ներմուծումը։
+          EOF
+
+          cat > .gitignore <<'EOF'
+          **/node_modules/
+          **/dist/
+          **/.DS_Store
+          *.log
+          .env
+          .env.*
+          !.env.example
+          EOF
+
+      - name: Install and validate web app
+        working-directory: webapp
+        run: |
+          npm install
+          npm run build
+
+      - name: Validate desktop
+        working-directory: desktop
+        run: |
+          npm ci
+          npm run check
+          npm test
+
+      - name: Commit platform split
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- ':!.github/workflows'
+          if git diff --cached --quiet; then
+            echo "No application changes to commit"
+          else
+            git commit -m "feat: split Julo into desktop and web apps"
+            git push origin HEAD:main
+          fi

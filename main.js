@@ -1,6 +1,65 @@
-const { app, BrowserWindow, ipcMain, Notification, dialog, shell, globalShortcut, Tray, Menu, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, dialog, shell, globalShortcut, Tray, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { migrateDataSchema } = require('./lib/data-migrations');
+const { rewriteVaultRegistryPaths } = require('./lib/profile-migration');
+
+const JULO_PROFILE_DIR = 'Julo';
+const LEGACY_PROFILE_DIRS = ['planer', 'Planer'];
+
+function copyDirectoryIfPresent(source, target) {
+  if (!fs.existsSync(source)) return false;
+  fs.mkdirSync(target, { recursive: true });
+  fs.cpSync(source, target, { recursive: true, force: false, errorOnExist: false });
+  return true;
+}
+
+function configureJuloProfile() {
+  const appDataDir = app.getPath('appData');
+  const juloUserDataDir = path.join(appDataDir, JULO_PROFILE_DIR);
+  fs.mkdirSync(juloUserDataDir, { recursive: true });
+  const markerPath = path.join(juloUserDataDir, '.profile-migration-v1.json');
+
+  if (!fs.existsSync(markerPath)) {
+    let migratedFrom = null;
+    for (const legacyName of LEGACY_PROFILE_DIRS) {
+      const legacyUserDataDir = path.join(appDataDir, legacyName);
+      if (path.resolve(legacyUserDataDir) === path.resolve(juloUserDataDir) || !fs.existsSync(legacyUserDataDir)) continue;
+
+      const legacyDataDir = path.join(legacyUserDataDir, 'data');
+      const juloDataDir = path.join(juloUserDataDir, 'data');
+      copyDirectoryIfPresent(legacyDataDir, juloDataDir);
+      copyDirectoryIfPresent(path.join(legacyUserDataDir, 'backup'), path.join(juloUserDataDir, 'backup'));
+      copyDirectoryIfPresent(path.join(legacyUserDataDir, 'Local Storage'), path.join(juloUserDataDir, 'Local Storage'));
+
+      const registryPath = path.join(juloDataDir, 'vaults_registry.json');
+      if (fs.existsSync(registryPath)) {
+        try {
+          const registry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+          const rewritten = rewriteVaultRegistryPaths(registry, legacyDataDir, juloDataDir, process.platform);
+          fs.writeFileSync(registryPath, JSON.stringify(rewritten, null, 2), 'utf8');
+        } catch (error) {
+          console.warn('Julo profile migration: failed to rewrite vault registry paths:', error);
+        }
+      }
+
+      migratedFrom = legacyUserDataDir;
+      break;
+    }
+
+    fs.writeFileSync(markerPath, JSON.stringify({
+      version: 1,
+      migratedAt: new Date().toISOString(),
+      migratedFrom
+    }, null, 2), 'utf8');
+  }
+
+  app.setPath('userData', juloUserDataDir);
+  app.setPath('sessionData', juloUserDataDir);
+  app.setName('Julo');
+}
+
+configureJuloProfile();
 
 let mainWindow;
 let tray = null;
@@ -72,51 +131,10 @@ function loadVaultsRegistry() {
 }
 
 // =========================================================================
-// БЕЗОПАСНОСТЬ: ШИФРОВАНИЕ УЧЕТНЫХ ДАННЫХ (Windows DPAPI) И АТОМАРНАЯ ЗАПИСЬ
+// БЕЗОПАСНОСТЬ ДАННЫХ: АТОМАРНАЯ ЗАПИСЬ И ЛОКАЛЬНЫЕ РЕЗЕРВНЫЕ КОПИИ
 // =========================================================================
 
-function isSafeStorageAvailable() {
-  try {
-    return safeStorage && safeStorage.isEncryptionAvailable();
-  } catch (e) {
-    return false;
-  }
-}
-
-function encryptPassword(plainText) {
-  if (!plainText) return '';
-  if (typeof plainText === 'string' && plainText.startsWith('enc:')) {
-    return plainText;
-  }
-  if (isSafeStorageAvailable()) {
-    try {
-      const buffer = safeStorage.encryptString(plainText);
-      return 'enc:' + buffer.toString('base64');
-    } catch (e) {
-      console.error('Ошибка шифрования учетных данных safeStorage:', e);
-    }
-  }
-  return plainText;
-}
-
-function decryptPassword(storedPassword) {
-  if (!storedPassword || typeof storedPassword !== 'string') return '';
-  if (storedPassword.startsWith('enc:')) {
-    if (isSafeStorageAvailable()) {
-      try {
-        const buffer = Buffer.from(storedPassword.slice(4), 'base64');
-        return safeStorage.decryptString(buffer);
-      } catch (e) {
-        console.error('Ошибка расшифровки учетных данных safeStorage:', e);
-        return '';
-      }
-    }
-    return '';
-  }
-  return storedPassword;
-}
-
-function atomicWriteJsonSync(targetPath, data) {
+function atomicWriteJsonSync(targetPath, data, { createBackup = true } = {}) {
   const dir = path.dirname(targetPath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
@@ -130,7 +148,7 @@ function atomicWriteJsonSync(targetPath, data) {
   fs.writeFileSync(tempPath, jsonContent, 'utf8');
 
   // 2. Создание резервной копии .bak существующего валидного файла
-  if (fs.existsSync(targetPath)) {
+  if (createBackup && fs.existsSync(targetPath)) {
     try {
       const stats = fs.statSync(targetPath);
       if (stats.size > 20) {
@@ -155,6 +173,27 @@ function atomicWriteJsonSync(targetPath, data) {
     try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (e) {}
     throw err;
   }
+}
+
+function migrateStoredData(targetFile, rawData) {
+  const { data, changed } = migrateDataSchema(rawData);
+  if (changed) atomicWriteJsonSync(targetFile, data, { createBackup: false });
+
+  const backupPath = targetFile + '.bak';
+  if (fs.existsSync(backupPath)) {
+    try {
+      const migratedBackup = migrateDataSchema(JSON.parse(fs.readFileSync(backupPath, 'utf8')));
+      if (migratedBackup.changed) {
+        atomicWriteJsonSync(backupPath, migratedBackup.data, { createBackup: false });
+      }
+    } catch (error) {}
+  }
+
+  return data;
+}
+
+function readAndMigrateDataFile(targetFile) {
+  return migrateStoredData(targetFile, JSON.parse(fs.readFileSync(targetFile, 'utf8')));
 }
 
 function saveVaultsRegistry(registry) {
@@ -197,7 +236,7 @@ function getBackupDir() {
 }
 
 // Данные по умолчанию при первом запуске
-const defaultData = {
+const defaultData = migrateDataSchema({
   sections: [
     {
       id: 'work',
@@ -259,20 +298,21 @@ const defaultData = {
   ],
   settings: {
     theme: 'warm',
-    soundEnabled: true
+    soundEnabled: true,
+    sync: { enabled: false, provider: null }
   }
-};
+}).data;
 
 function createTray() {
   if (tray) return;
 
   const iconPath = path.join(__dirname, 'src', 'assets', 'icon.png');
   tray = new Tray(iconPath);
-  tray.setToolTip('Мой Планер — Персональный менеджер задач');
+  tray.setToolTip('Julo — Персональный менеджер задач');
 
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: '📖 Открыть Планер',
+      label: '📖 Открыть Julo',
       click: () => {
         if (mainWindow) {
           mainWindow.show();
@@ -300,15 +340,6 @@ function createTray() {
           if (mainWindow.isMinimized()) mainWindow.restore();
           mainWindow.focus();
           mainWindow.webContents.send('trigger-break-toggle');
-        }
-      }
-    },
-    { type: 'separator' },
-    {
-      label: '🔄 Синхронизировать с облаком',
-      click: () => {
-        if (mainWindow) {
-          mainWindow.webContents.send('trigger-sync-now');
         }
       }
     },
@@ -354,7 +385,7 @@ function createWindow() {
     height: 820,
     minWidth: 950,
     minHeight: 600,
-    title: 'Мой Планер',
+    title: 'Julo',
     icon: path.join(__dirname, 'src', 'assets', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -415,28 +446,16 @@ ipcMain.handle('get-data', async () => {
 
     if (fs.existsSync(targetFile)) {
       try {
-        const content = fs.readFileSync(targetFile, 'utf8');
-        const parsed = JSON.parse(content);
-        if (parsed) {
-          if (parsed.settings?.webdav?.password) {
-            parsed.settings.webdav.password = decryptPassword(parsed.settings.webdav.password);
-          }
-          return { ...parsed, _vaultInfo: activeVault };
-        }
+        const parsed = readAndMigrateDataFile(targetFile);
+        if (parsed) return { ...parsed, _vaultInfo: activeVault };
       } catch (parseErr) {
         console.error('Целевой файл базы поврежден, пробуем восстановить из .bak:', parseErr);
         const backupPath = targetFile + '.bak';
         if (fs.existsSync(backupPath)) {
           try {
             const bakContent = fs.readFileSync(backupPath, 'utf8');
-            const bakParsed = JSON.parse(bakContent);
-            if (bakParsed) {
-              atomicWriteJsonSync(targetFile, bakParsed);
-              if (bakParsed.settings?.webdav?.password) {
-                bakParsed.settings.webdav.password = decryptPassword(bakParsed.settings.webdav.password);
-              }
-              return { ...bakParsed, _vaultInfo: activeVault };
-            }
+            const bakParsed = migrateDataSchema(JSON.parse(bakContent)).data;
+            if (bakParsed) { atomicWriteJsonSync(targetFile, bakParsed, { createBackup: false }); return { ...bakParsed, _vaultInfo: activeVault }; }
           } catch (bakErr) {
             console.error('Ошибка восстановления из .bak файла:', bakErr);
           }
@@ -451,11 +470,9 @@ ipcMain.handle('get-data', async () => {
         const content = fs.readFileSync(localDataPath, 'utf8');
         const parsed = JSON.parse(content);
         if (parsed && (parsed.tasks?.length > 0 || parsed.sections?.length > 0 || parsed.completedTasks?.length > 0)) {
-          atomicWriteJsonSync(targetFile, parsed);
-          if (parsed.settings?.webdav?.password) {
-            parsed.settings.webdav.password = decryptPassword(parsed.settings.webdav.password);
-          }
-          return { ...parsed, _vaultInfo: activeVault };
+          const migrated = migrateDataSchema(parsed).data;
+          atomicWriteJsonSync(targetFile, migrated, { createBackup: false });
+          return { ...migrated, _vaultInfo: activeVault };
         }
       } catch (e) {}
     }
@@ -472,11 +489,7 @@ ipcMain.handle('get-data', async () => {
 ipcMain.handle('save-data', async (event, data) => {
   try {
     const targetFile = getActiveVaultFilePath();
-    // Клонируем данные для безопасной обработки
-    const dataToSave = JSON.parse(JSON.stringify(data));
-    if (dataToSave?.settings?.webdav?.password) {
-      dataToSave.settings.webdav.password = encryptPassword(dataToSave.settings.webdav.password);
-    }
+    const dataToSave = migrateDataSchema(data).data;
     atomicWriteJsonSync(targetFile, dataToSave);
     return { success: true };
   } catch (err) {
@@ -531,8 +544,7 @@ ipcMain.handle('switch-vault', async (event, targetVaultId) => {
     const targetFile = targetVault.filePath;
     let data = defaultData;
     if (fs.existsSync(targetFile)) {
-      const content = fs.readFileSync(targetFile, 'utf8');
-      data = JSON.parse(content);
+      data = readAndMigrateDataFile(targetFile);
     } else {
       const dir = path.dirname(targetFile);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -540,7 +552,7 @@ ipcMain.handle('switch-vault', async (event, targetVaultId) => {
     }
 
     if (mainWindow) {
-      mainWindow.setTitle('Мой Планер');
+      mainWindow.setTitle('Julo');
     }
 
     return {
@@ -611,17 +623,12 @@ ipcMain.handle('create-vault', async (event, { name, icon, color, customFilePath
         soundTone: 'digital',
         defaultSubtasksExpanded: 'collapsed',
         remindersInArchive: false,
-        webdav: {
-          enabled: false,
-          serverUrl: 'https://webdav.cloud.mail.ru',
-          username: '',
-          password: '',
-          cloudFolder: `/Planer/${(name || 'Vault').replace(/[^\w\u0400-\u04FF]/gi, '_')}/`
-        }
+        sync: { enabled: false, provider: null }
       }
     };
 
-    atomicWriteJsonSync(filePath, initialData);
+    const migratedInitialData = migrateDataSchema(initialData).data;
+    atomicWriteJsonSync(filePath, migratedInitialData);
 
     const newVault = {
       id: vaultId,
@@ -637,13 +644,13 @@ ipcMain.handle('create-vault', async (event, { name, icon, color, customFilePath
     saveVaultsRegistry(reg);
 
     if (mainWindow) {
-      mainWindow.setTitle('Мой Планер');
+      mainWindow.setTitle('Julo');
     }
 
     return {
       success: true,
       vaultInfo: newVault,
-      data: { ...initialData, _vaultInfo: newVault }
+      data: { ...migratedInitialData, _vaultInfo: newVault }
     };
   } catch (err) {
     return { success: false, error: err.message };
@@ -654,9 +661,9 @@ ipcMain.handle('create-vault', async (event, { name, icon, color, customFilePath
 ipcMain.handle('open-vault-from-file', async () => {
   try {
     const res = await dialog.showOpenDialog(mainWindow, {
-      title: 'Выберите файл базы данных Planer (*.json)',
+      title: 'Выберите файл базы данных Julo (*.json)',
       filters: [
-        { name: 'База данных Planer (*.json)', extensions: ['json'] },
+        { name: 'База данных Julo (*.json)', extensions: ['json'] },
         { name: 'Все файлы (*.*)', extensions: ['*'] }
       ],
       properties: ['openFile']
@@ -667,8 +674,7 @@ ipcMain.handle('open-vault-from-file', async () => {
     }
 
     const selectedPath = res.filePaths[0];
-    const content = fs.readFileSync(selectedPath, 'utf8');
-    const parsed = JSON.parse(content);
+    const parsed = readAndMigrateDataFile(selectedPath);
 
     const baseName = path.basename(selectedPath, '.json');
     const reg = loadVaultsRegistry();
@@ -691,7 +697,7 @@ ipcMain.handle('open-vault-from-file', async () => {
     saveVaultsRegistry(reg);
 
     if (mainWindow) {
-      mainWindow.setTitle('Мой Планер');
+      mainWindow.setTitle('Julo');
     }
 
     return {
@@ -750,7 +756,7 @@ ipcMain.handle('change-vault-meta', async (event, { vaultId, name, icon, color }
     saveVaultsRegistry(reg);
 
     if (reg.activeVaultId === vaultId && mainWindow) {
-      mainWindow.setTitle('Мой Планер');
+      mainWindow.setTitle('Julo');
     }
 
     return { success: true, vault };
@@ -793,7 +799,7 @@ ipcMain.handle('delete-vault', async (event, { vaultId, deleteFileOnDisk }) => {
       reg.activeVaultId = reg.vaults[0].id;
       newActiveVault = reg.vaults[0];
       if (fs.existsSync(newActiveVault.filePath)) {
-        newActiveData = JSON.parse(fs.readFileSync(newActiveVault.filePath, 'utf8'));
+        newActiveData = readAndMigrateDataFile(newActiveVault.filePath);
       } else {
         newActiveData = defaultData;
       }
@@ -813,13 +819,13 @@ ipcMain.handle('delete-vault', async (event, { vaultId, deleteFileOnDisk }) => {
 });
 
 // 8. Диалог выбора пути для сохранения базы
-ipcMain.handle('choose-vault-file-path', async (event, defaultName = 'planer_db') => {
+ipcMain.handle('choose-vault-file-path', async (event, defaultName = 'julo_db') => {
   try {
     const res = await dialog.showSaveDialog(mainWindow, {
       title: 'Укажите место и имя файла для базы данных',
       defaultPath: `${defaultName}.json`,
       filters: [
-        { name: 'База данных Planer (*.json)', extensions: ['json'] }
+        { name: 'База данных Julo (*.json)', extensions: ['json'] }
       ]
     });
     if (res.canceled || !res.filePath) return { canceled: true };
@@ -853,10 +859,10 @@ ipcMain.handle('show-notification', async (event, { title, body }) => {
   }
 });
 
-// Ручной экспорт бэкапа с удалением учетных данных WebDAV
+// Ручной экспорт безопасного бэкапа
 ipcMain.handle('export-backup', async (event, data) => {
   const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const defaultPath = path.join(app.getPath('documents'), `planer_backup_${dateStr}.json`);
+  const defaultPath = path.join(app.getPath('documents'), `julo_backup_${dateStr}.json`);
   
   const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
     title: 'Сохранить резервную копию задач',
@@ -865,11 +871,7 @@ ipcMain.handle('export-backup', async (event, data) => {
   });
 
   if (!canceled && filePath) {
-    // Клонируем и очищаем конфиденциальные пароли перед выгрузкой во внешний файл
-    const safeData = JSON.parse(JSON.stringify(data));
-    if (safeData.settings?.webdav) {
-      safeData.settings.webdav.password = '';
-    }
+    const safeData = migrateDataSchema(data).data;
     atomicWriteJsonSync(filePath, safeData);
     return { success: true, filePath };
   }
@@ -886,28 +888,9 @@ ipcMain.handle('import-backup', async () => {
 
   if (!canceled && filePaths.length > 0) {
     try {
-      const content = fs.readFileSync(filePaths[0], 'utf8');
-      const data = JSON.parse(content);
-      const targetFile = getActiveVaultFilePath();
-      // Если в импортируемом бэкапе не было пароля WebDAV, сохраняем текущий активный
-      if (fs.existsSync(targetFile)) {
-        try {
-          const currentContent = fs.readFileSync(targetFile, 'utf8');
-          const currentData = JSON.parse(currentContent);
-          if (currentData.settings?.webdav?.password && (!data.settings?.webdav?.password)) {
-            if (!data.settings) data.settings = {};
-            if (!data.settings.webdav) data.settings.webdav = {};
-            data.settings.webdav.password = currentData.settings.webdav.password;
-          }
-        } catch (e) {}
-      }
-      atomicWriteJsonSync(targetFile, data);
-      // Возвращаем данные с расшифрованным паролем для рендерера
-      const resultData = JSON.parse(JSON.stringify(data));
-      if (resultData.settings?.webdav?.password) {
-        resultData.settings.webdav.password = decryptPassword(resultData.settings.webdav.password);
-      }
-      return { success: true, data: resultData };
+      const data = migrateDataSchema(JSON.parse(fs.readFileSync(filePaths[0], 'utf8'))).data;
+      atomicWriteJsonSync(getActiveVaultFilePath(), data);
+      return { success: true, data };
     } catch (err) {
       return { success: false, error: err.message };
     }
@@ -1292,240 +1275,6 @@ ipcMain.handle('bring-to-front', async () => {
 });
 
 // =========================================================================
-// WEBDAV КЛИЕНТ И ОБЛАЧНАЯ СИНХРОНИЗАЦИЯ (Mail.ru Cloud / WebDAV)
-// =========================================================================
-const https = require('https');
-const http = require('http');
-const { URL } = require('url');
-
-function parseWebdavConfig(config) {
-  let server = (config.serverUrl || 'https://webdav.cloud.mail.ru').trim();
-  if (!server.startsWith('http://') && !server.startsWith('https://')) {
-    server = 'https://' + server;
-  }
-  // Защита: для внешних облачных серверов принудительно используем защищенный протокол HTTPS
-  if (server.startsWith('http://') && !server.includes('localhost') && !server.includes('127.0.0.1')) {
-    server = server.replace(/^http:\/\//i, 'https://');
-  }
-  server = server.replace(/\/+$/, '');
-
-  let folder = (config.folderPath || 'PlanerSync').trim();
-  folder = folder.replace(/^\/+|\/+$/g, '');
-
-  const username = (config.username || '').trim();
-  const rawPassword = (config.password || '').trim();
-  const password = decryptPassword(rawPassword);
-
-  return { server, folder, username, password };
-}
-
-function doWebdavHttpRequest(options, postData = null) {
-  return new Promise((resolve, reject) => {
-    const isHttps = options.protocol === 'https:';
-    const client = isHttps ? https : http;
-
-    const req = client.request(options, (res) => {
-      const chunks = [];
-      res.on('data', chunk => chunks.push(chunk));
-      res.on('end', () => {
-        const buffer = Buffer.concat(chunks);
-        const text = buffer.toString('utf8');
-        resolve({
-          statusCode: res.statusCode,
-          headers: res.headers,
-          body: text,
-          buffer: buffer
-        });
-      });
-    });
-
-    req.on('error', err => reject(err));
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error('Превышено время ожидания ответа сервера (25 сек таймаут)'));
-    });
-
-    req.setTimeout(25000);
-
-    if (postData) {
-      req.write(postData);
-    }
-    req.end();
-  });
-}
-
-function buildWebdavHeaders(username, password, extraHeaders = {}) {
-  const authStr = Buffer.from(`${username}:${password}`).toString('base64');
-  return {
-    'Authorization': `Basic ${authStr}`,
-    'User-Agent': 'PlanerApp/1.0 WebDAV Client',
-    ...extraHeaders
-  };
-}
-
-async function ensureWebdavFolderExists(cfg) {
-  if (!cfg.folder) return true;
-  try {
-    const folderUrl = new URL(`${cfg.server}/${encodeURIComponent(cfg.folder)}/`);
-    const options = {
-      protocol: folderUrl.protocol,
-      hostname: folderUrl.hostname,
-      port: folderUrl.port || (folderUrl.protocol === 'https:' ? 443 : 80),
-      path: folderUrl.pathname,
-      method: 'MKCOL',
-      headers: buildWebdavHeaders(cfg.username, cfg.password)
-    };
-
-    const res = await doWebdavHttpRequest(options);
-    // 201 Created, 405 Method Not Allowed (already exists), 301/200/204 - all OK
-    if ([200, 201, 204, 301, 405].includes(res.statusCode)) {
-      return true;
-    }
-    return false;
-  } catch (e) {
-    return false;
-  }
-}
-
-// 1. Проверка подключения к WebDAV
-ipcMain.handle('webdav-test-connection', async (event, config) => {
-  try {
-    const cfg = parseWebdavConfig(config);
-    if (!cfg.username || !cfg.password) {
-      return { success: false, error: 'Введите логин (Email) и пароль от WebDAV' };
-    }
-
-    const testUrl = new URL(cfg.server + '/');
-    const options = {
-      protocol: testUrl.protocol,
-      hostname: testUrl.hostname,
-      port: testUrl.port || (testUrl.protocol === 'https:' ? 443 : 80),
-      path: testUrl.pathname,
-      method: 'PROPFIND',
-      headers: buildWebdavHeaders(cfg.username, cfg.password, { 'Depth': '0' })
-    };
-
-    const res = await doWebdavHttpRequest(options);
-
-    if (res.statusCode === 401) {
-      return {
-        success: false,
-        error: 'Ошибка 401: Неверный логин или пароль. Для Mail.ru создайте «Пароль для внешних приложений» в настройках безопасности почты.'
-      };
-    }
-
-    if (res.statusCode >= 200 && res.statusCode < 400 || res.statusCode === 207 || res.statusCode === 405) {
-      // Создаем рабочую папку в облаке если ее нет
-      await ensureWebdavFolderExists(cfg);
-      return {
-        success: true,
-        message: `Успешно! Подключение к ${cfg.server} установлено, папка /${cfg.folder || ''} готова.`
-      };
-    }
-
-    return {
-      success: false,
-      error: `Сервер вернул статус HTTP ${res.statusCode}: ${res.body.slice(0, 150)}`
-    };
-  } catch (err) {
-    return {
-      success: false,
-      error: `Ошибка соединения с сервером: ${err.message}`
-    };
-  }
-});
-
-// 2. Скачивание данных из WebDAV облака
-ipcMain.handle('webdav-fetch-remote', async (event, config) => {
-  try {
-    const cfg = parseWebdavConfig(config);
-    const fileName = config.fileName || 'tasks_data.json';
-    const filePath = cfg.folder ? `/${encodeURIComponent(cfg.folder)}/${encodeURIComponent(fileName)}` : `/${encodeURIComponent(fileName)}`;
-    const fileUrl = new URL(`${cfg.server}${filePath}`);
-
-    const options = {
-      protocol: fileUrl.protocol,
-      hostname: fileUrl.hostname,
-      port: fileUrl.port || (fileUrl.protocol === 'https:' ? 443 : 80),
-      path: fileUrl.pathname,
-      method: 'GET',
-      headers: buildWebdavHeaders(cfg.username, cfg.password)
-    };
-
-    const res = await doWebdavHttpRequest(options);
-
-    if (res.statusCode === 404) {
-      return { success: true, exists: false };
-    }
-
-    if (res.statusCode === 401) {
-      return { success: false, error: 'Ошибка 401: Доступ запрещен (проверьте логин/пароль WebDAV)' };
-    }
-
-    if (res.statusCode >= 200 && res.statusCode < 300) {
-      try {
-        const parsed = JSON.parse(res.body);
-        return {
-          success: true,
-          exists: true,
-          data: parsed,
-          lastModified: res.headers['last-modified'] || new Date().toISOString()
-        };
-      } catch (parseErr) {
-        return { success: false, error: `Ошибка разбора JSON из облака: ${parseErr.message}` };
-      }
-    }
-
-    return { success: false, error: `Ошибка HTTP ${res.statusCode} при скачивании из облака` };
-  } catch (err) {
-    return { success: false, error: `Сбой сети при скачивании: ${err.message}` };
-  }
-});
-
-// 3. Отправка данных в WebDAV облако
-ipcMain.handle('webdav-push-remote', async (event, { config, data }) => {
-  try {
-    const cfg = parseWebdavConfig(config);
-    await ensureWebdavFolderExists(cfg);
-
-    const fileName = config.fileName || 'tasks_data.json';
-    const filePath = cfg.folder ? `/${encodeURIComponent(cfg.folder)}/${encodeURIComponent(fileName)}` : `/${encodeURIComponent(fileName)}`;
-    const fileUrl = new URL(`${cfg.server}${filePath}`);
-
-    const payload = Buffer.from(JSON.stringify(data, null, 2), 'utf8');
-
-    const options = {
-      protocol: fileUrl.protocol,
-      hostname: fileUrl.hostname,
-      port: fileUrl.port || (fileUrl.protocol === 'https:' ? 443 : 80),
-      path: fileUrl.pathname,
-      method: 'PUT',
-      headers: buildWebdavHeaders(cfg.username, cfg.password, {
-        'Content-Type': 'application/json; charset=utf-8',
-        'Content-Length': payload.length
-      })
-    };
-
-    const res = await doWebdavHttpRequest(options, payload);
-
-    if (res.statusCode >= 200 && res.statusCode < 300) {
-      return {
-        success: true,
-        lastModified: res.headers['last-modified'] || new Date().toISOString()
-      };
-    }
-
-    if (res.statusCode === 401) {
-      return { success: false, error: 'Ошибка 401: Доступ запрещен (проверьте логин/пароль WebDAV)' };
-    }
-
-    return { success: false, error: `Ошибка HTTP ${res.statusCode} при отправке в облако: ${res.body.slice(0, 150)}` };
-  } catch (err) {
-    return { success: false, error: `Сбой сети при отправке: ${err.message}` };
-  }
-});
-
-// =========================================================================
 // Глобальные горячие клавиши (Global Shortcuts)
 // =========================================================================
 function normalizeShortcutForElectron(shortcutStr) {
@@ -1628,7 +1377,7 @@ ipcMain.handle('get-autostart-status', () => {
 app.whenReady().then(() => {
   // Настройка App ID для корректного отображения тостов в Windows
   if (process.platform === 'win32') {
-    app.setAppUserModelId('ru.planer.taskmanager');
+    app.setAppUserModelId('app.julo.taskmanager');
   }
 
   // Создаем иконку в трее
@@ -1642,7 +1391,7 @@ app.whenReady().then(() => {
   try {
     const dataPath = getActiveVaultFilePath();
     if (fs.existsSync(dataPath)) {
-      const parsed = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+      const parsed = readAndMigrateDataFile(dataPath);
       if (parsed.settings) {
         if (parsed.settings.minimizeToTray !== undefined) {
           minimizeToTray = parsed.settings.minimizeToTray;

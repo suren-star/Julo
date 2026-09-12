@@ -1,0 +1,58 @@
+name: Upgrade Electron security patch
+
+on:
+  push:
+    branches: [beta-dev]
+    paths:
+      - '.github/workflows/upgrade-electron.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  upgrade-and-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Upgrade Electron to patched 41.x
+        run: npm install --save-dev electron@41.10.7
+
+      - name: Validate source and migrations
+        run: |
+          npm run check
+          npm test
+
+      - name: Verify dependency audit
+        run: npm audit --audit-level=high
+
+      - name: Build Windows package
+        run: npm run build
+
+      - name: Verify executable
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'dist/Julo-win32-x64/Julo.exe')) {
+            throw 'Expected Julo.exe was not produced.'
+          }
+
+      - name: Commit patched Electron version
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          if git diff --cached --quiet; then
+            echo "No Electron dependency changes to commit"
+            exit 0
+          fi
+          git commit -m "build: update Electron to patched 41.10.7"
+          git push origin HEAD:beta-dev

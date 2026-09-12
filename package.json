@@ -1,26 +1,30 @@
 {
-  "name": "planer",
-  "version": "1.0.0",
-  "description": "Персональный таск-менеджер: раздельные листы, архив по датам, мульти-таймер и Drag-and-Drop",
+  "name": "julo",
+  "version": "0.1.0-beta.1",
+  "description": "Julo desktop task manager — tasks, planning, time tracking and local-first data",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "build": "electron-packager . Planer --platform=win32 --arch=x64 --icon=src/assets/icon.ico --out=dist --overwrite --prune=true --ignore=\"([/\\\\]|^)(backup|dist|Planer-win32-x64|\\.git|Проект на гитхаб|data|идеи\\.txt|PROJECT_RULES\\.md|5894393\\.ico)\""
+    "check": "node --check main.js && node --check preload.js && node --check lib/data-migrations.js && node --check lib/profile-migration.js && node --check src/js/storage.js && node --check src/js/timer.js && node --check src/js/sync.js && node --check src/js/app.js",
+    "test": "node --test tests/*.test.js",
+    "build": "electron-packager . Julo --platform=win32 --arch=x64 --icon=src/assets/icon.ico --out=dist --overwrite --prune=true --ignore=\"([/\\\\]|^)(backup|dist|Julo-win32-x64|Planer-win32-x64|\\.git|data|PROJECT_RULES\\.md)\""
   },
   "keywords": [
     "task-manager",
     "planner",
     "todo",
-    "electron"
+    "electron",
+    "time-tracking"
   ],
-  "author": "Antigravity",
+  "author": "Julo contributors",
   "license": "ISC",
   "devDependencies": {
-    "electron": "^40.0.0",
-    "electron-packager": "^17.1.2"
+    "@electron/packager": "^20.3.0",
+    "electron": "^41.10.7"
   },
   "dependencies": {
     "dompurify": "^3.4.15"
-  }
+  },
+  "productName": "Julo"
 }

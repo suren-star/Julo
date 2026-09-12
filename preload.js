@@ -9,9 +9,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openBackupFolder: () => ipcRenderer.invoke('open-backup-folder'),
   bringToFront: () => ipcRenderer.invoke('bring-to-front'),
   minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
-  webdavTestConnection: (config) => ipcRenderer.invoke('webdav-test-connection', config),
-  webdavFetchRemote: (config) => ipcRenderer.invoke('webdav-fetch-remote', config),
-  webdavPushRemote: (payload) => ipcRenderer.invoke('webdav-push-remote', payload),
   registerGlobalShortcut: (payload) => ipcRenderer.invoke('register-global-shortcut', payload),
   getGlobalShortcutStatus: () => ipcRenderer.invoke('get-global-shortcut-status'),
   setMinimizeToTray: (enabled) => ipcRenderer.invoke('set-minimize-to-tray', enabled),
@@ -39,8 +36,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   onTriggerBreakToggle: (callback) => {
     ipcRenderer.on('trigger-break-toggle', () => callback());
-  },
-  onTriggerSyncNow: (callback) => {
-    ipcRenderer.on('trigger-sync-now', () => callback());
   }
 });

@@ -35,6 +35,10 @@ jobs:
         working-directory: webapp
         run: npm ci
 
+      - name: Run regression tests
+        working-directory: webapp
+        run: npm test
+
       - name: Build webapp
         working-directory: webapp
         run: npm run build

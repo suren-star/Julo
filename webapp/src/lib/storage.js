@@ -8,6 +8,22 @@ const VALID_WORKSPACE_ROLES = new Set(['owner', 'admin', 'member', 'viewer', 'gu
 const VALID_PROJECT_ROLES = new Set(['manager', 'editor', 'viewer']);
 const LOCAL_OWNER_ID = 'member_local_owner';
 
+export const MAX_BACKUP_TEXT_CHARS = 4 * 1024 * 1024;
+const BACKUP_LIMITS = Object.freeze({
+  projects: 1000,
+  tasks: 10000,
+  members: 1000,
+  commentsPerTask: 500,
+  tagsPerTask: 100,
+  projectName: 500,
+  taskTitle: 1000,
+  taskDescription: 20000,
+  commentText: 20000,
+  memberName: 500,
+  memberEmail: 500,
+  tag: 200,
+});
+
 const now = () => new Date().toISOString();
 
 const defaultOwner = () => ({
@@ -112,11 +128,47 @@ export const normalizeWorkspace = (source) => {
     members,
     currentUserId,
     settings: {
-      ...source.settings,
       theme,
       language: asText(source.settings?.language, 'hy') || 'hy',
     },
   };
+};
+
+const assertMaxText = (value, max, label) => {
+  if (typeof value === 'string' && value.length > max) {
+    throw new Error(`${label} դաշտը գերազանցում է թույլատրելի չափը։`);
+  }
+};
+
+const assertWorkspaceBounds = (source) => {
+  const projects = Array.isArray(source.projects) ? source.projects : [];
+  const tasks = Array.isArray(source.tasks) ? source.tasks : [];
+  const members = Array.isArray(source.members) ? source.members : [];
+
+  if (projects.length > BACKUP_LIMITS.projects) throw new Error('Պահուստային պատճենում նախագծերի քանակը չափազանց մեծ է։');
+  if (tasks.length > BACKUP_LIMITS.tasks) throw new Error('Պահուստային պատճենում առաջադրանքների քանակը չափազանց մեծ է։');
+  if (members.length > BACKUP_LIMITS.members) throw new Error('Պահուստային պատճենում անդամների քանակը չափազանց մեծ է։');
+
+  projects.forEach((project) => {
+    assertMaxText(project?.name, BACKUP_LIMITS.projectName, 'Նախագծի անուն');
+  });
+
+  tasks.forEach((task) => {
+    assertMaxText(task?.title, BACKUP_LIMITS.taskTitle, 'Առաջադրանքի վերնագիր');
+    assertMaxText(task?.description, BACKUP_LIMITS.taskDescription, 'Առաջադրանքի նկարագրություն');
+
+    const tags = Array.isArray(task?.tags) ? task.tags : [];
+    const comments = Array.isArray(task?.comments) ? task.comments : [];
+    if (tags.length > BACKUP_LIMITS.tagsPerTask) throw new Error('Առաջադրանքի պիտակների քանակը չափազանց մեծ է։');
+    if (comments.length > BACKUP_LIMITS.commentsPerTask) throw new Error('Առաջադրանքի մեկնաբանությունների քանակը չափազանց մեծ է։');
+    tags.forEach((tag) => assertMaxText(tag, BACKUP_LIMITS.tag, 'Պիտակ'));
+    comments.forEach((comment) => assertMaxText(comment?.text, BACKUP_LIMITS.commentText, 'Մեկնաբանություն'));
+  });
+
+  members.forEach((member) => {
+    assertMaxText(member?.name, BACKUP_LIMITS.memberName, 'Անդամի անուն');
+    assertMaxText(member?.email, BACKUP_LIMITS.memberEmail, 'Էլ․ փոստ');
+  });
 };
 
 export const localStorageProvider = {
@@ -141,6 +193,10 @@ export const serializeWorkspace = (state) => JSON.stringify({
 }, null, 2);
 
 export const parseWorkspaceBackup = (text) => {
+  if (typeof text !== 'string' || text.length > MAX_BACKUP_TEXT_CHARS) {
+    throw new Error('Պահուստային պատճենի ֆայլը չափազանց մեծ է։');
+  }
+
   let parsed;
   try {
     parsed = JSON.parse(text);
@@ -148,10 +204,16 @@ export const parseWorkspaceBackup = (text) => {
     throw new Error('Ֆայլը վավեր JSON չէ։');
   }
 
+  if (parsed?.format === 'julo-workspace' && parsed.formatVersion !== 1) {
+    throw new Error('Պահուստային պատճենի տարբերակը դեռ չի աջակցվում։');
+  }
+
   const source = parsed?.format === 'julo-workspace' ? parsed.workspace : parsed;
   if (!source || typeof source !== 'object' || !Array.isArray(source.projects) || !Array.isArray(source.tasks)) {
     throw new Error('Ֆայլը Julo աշխատանքային տարածքի պահուստային պատճեն չէ։');
   }
+
+  assertWorkspaceBounds(source);
   return normalizeWorkspace(source);
 };
 

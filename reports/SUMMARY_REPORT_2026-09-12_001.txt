@@ -1,0 +1,429 @@
+JULO — ՓՈՒԼԱՅԻՆ SUMMARY REPORT
+================================
+Հաշվետվություն №001
+Ամսաթիվ՝ 2026-09-12
+Repository՝ suren-star/Julo
+Live Webapp՝ https://suren-star.github.io/Julo/
+
+ՆՊԱՏԱԿ
+------
+Այս ֆայլը Julo նախագծի մինչ այս կատարված աշխատանքների փուլային ամփոփումն է։
+Այսուհետ յուրաքանչյուր անգամ, երբ պահանջվում է «summary report», «summery report» կամ փուլային հաշվետվություն, reports/ թղթապանակում պետք է ստեղծվի ՆՈՐ TXT ֆայլ՝ նախորդները չփոխարինելով։
+Առաջարկվող անվանման ձևաչափը՝ SUMMARY_REPORT_YYYY-MM-DD_NNN.txt
+
+
+1. ՆԱԽԱԳԾԻ ՎԵՐԱԿԱԶՄԱԿԵՐՊՈՒՄ
+--------------------------
+Սկզբնական Planer հիմքից Julo-ն բաժանվել է երկու առանձին ուղղության՝
+
+1) desktop/
+   - Desktop տարբերակը պահպանվել է որպես առանձին Electron հավելված։
+   - Այն այլևս webapp-ի runtime-ը կամ wrapper-ը չէ։
+   - Desktop ուղղությունը ֆունկցիոնալ առումով «սառեցված» է՝ նոր feature-ներ այս փուլում չենք ավելացնում։
+
+2) webapp/
+   - Ստեղծվել է առանձին Julo Web App՝ React/Vite SPA։
+   - Webapp-ը կառուցվել է առանձին և չի հանդիսանում սկզբնական Planer desktop code-ի browser copy։
+   - UI լեզուն՝ հայերեն։
+   - Նախագիծը կառուցվում է local-first տրամաբանությամբ։
+
+Main branch-ում այս բաժանումը հաջողությամբ իրականացվել և CI-ով ստուգվել է։
+
+
+2. DESKTOP — ԿԱՏԱՐՎԱԾ ԱՇԽԱՏԱՆՔՆԵՐ
+--------------------------------
+Desktop ուղղությամբ կատարվել է կայունացման փուլ։
+
+Կատարված է՝
+- Mail.ru/WebDAV ակտիվ sync-ը հեռացվել է։
+- Պահպանվել է provider-neutral sync architecture-ի հիմքը։
+- safeStorage/WebDAV backend/UI մասերը հեռացվել են։
+- package/internal անունը տեղափոխվել է Julo տրամաբանության։
+- AppData profile migration է ավելացվել, որպեսզի հին Planer/planer user data-ն հնարավոր լինի տեղափոխել Julo profile։
+- Electron-ը և packaging tooling-ը թարմացվել են։
+- Data/profile migration tests են ավելացվել։
+- Desktop CI checks/tests-ը հաջող անցել են։
+- Desktop package beta version՝ 0.1.0-beta.1։
+
+Պահպանված հիմնական desktop հնարավորությունները՝
+- tasks/projects/sections,
+- subtasks,
+- drag/drop,
+- Today,
+- reminders,
+- week/month views,
+- timeline/time-blocking,
+- recurring tasks,
+- tags,
+- archive,
+- search/sorting,
+- notes,
+- attachments,
+- timers/time tracking/breaks/stats/manual logs,
+- quick capture/hotkeys/tray/autostart,
+- themes,
+- multi-vault,
+- backup/import/export։
+
+Desktop-ի ընթացիկ կարգավիճակ՝
+- Ֆունկցիոնալ հիմքը սառեցված է։
+- Cloud/backend միացված չէ։
+- Ռուսերեն UI-ի ամբողջական հայերենացումը դեռ չի իրականացվել։
+
+
+3. DESKTOP LOCALIZATION — ՈՐՏԵՂ ԵՆՔ ԿԱՆԳ ԱՌԵԼ
+--------------------------------------------
+Desktop UI-ում առկա ռուսերեն տեքստերի ավտոմատ թարգմանության փորձերը դադարեցվել են՝ սխալ/անվստահելի machine translation-ից խուսափելու համար։
+
+Կատարված է՝
+- Արտահանվել է localization catalog։
+- Գոյություն ունի localization-catalog.json։
+- Ստեղծվել է JULO_TRANSLATIONS.txt։
+- JULO_TRANSLATIONS.txt-ում կա 1476 ռուսերեն user-facing string։
+- Յուրաքանչյուր entry ունի կայուն ID՝ JULO-0001 և շարունակաբար։
+- Դաշտերը՝ ID / RUSSIAN / ENGLISH / ARMENIAN։
+- RUSSIAN-ը լրացված է, ENGLISH և ARMENIAN դաշտերը նախատեսված են հետագա լրացման համար։
+
+Համաձայնեցված localization կանոն՝
+- ID-ը չփոխել։
+- RUSSIAN-ը չփոխել։
+- Armenian թարգմանությունը machine translation-ով չլրացնել։
+- Օգտատերը կարող է լրացնել ARMENIAN-ը և հետագայում այն կիրառել source code-ում։
+- English-ը անհրաժեշտության դեպքում կարող է լրացվել ռուսերենից։
+
+Localization-ի ժամանակ պարտադիր է պահպանել տեխնիկական/compatibility key-երը՝ planter_theme, planter_tasks_data և նման արժեքները, ինչպես նաև IPC names, paths, CSS classes և data keys։
+
+
+4. WEBAPP — ՍԿԶԲՆԱԿԱՆ ՀԻՄՔ
+---------------------------
+Ստեղծվել է standalone Julo Web App։
+
+Տեխնիկական հիմք՝
+- React + Vite SPA,
+- localStorage local-first persistence,
+- storage provider abstraction,
+- Armenian UI,
+- light/dark theme,
+- responsive layout,
+- production build via GitHub Actions։
+
+Սկզբնական ֆունկցիաներ՝
+- նախագծեր,
+- Kanban board,
+- task status-ներ,
+- task modal,
+- task title/description/project/status/priority/deadline/tags,
+- search,
+- Today,
+- All tasks,
+- Done,
+- drag/drop status փոփոխություն,
+- theme toggle։
+
+
+5. DATA / WORKSPACE ԿԱՌԱՎԱՐՈՒՄ
+-----------------------------
+Webapp-ի workspace storage-ը դարձել է versioned/migratable։
+
+Ավելացվել է՝
+- schema normalization,
+- backward-compatible migration,
+- JSON backup export,
+- JSON backup import,
+- invalid/unrelated JSON rejection,
+- regression tests migration/import/export-ի համար։
+
+Նախագծերի կառավարման մեջ ավելացվել է՝
+- նախագիծ վերանվանել,
+- նախագիծ ջնջել,
+- նախագծի ակտիվ առաջադրանքների հաշվիչ։
+
+Նախագիծ ջնջելիս՝
+- առաջադրանքները ՉԵՆ ջնջվում,
+- դրանք տեղափոխվում են «Առանց նախագծի» վիճակի։
+
+
+6. ԹԻՄ ԵՎ ԴԵՐԵՐ
+----------------
+Julo-ում կառուցվել է roles/permissions հիմք։
+
+Workspace դերեր՝
+1) Սեփականատեր (Owner)
+2) Ադմինիստրատոր (Admin)
+3) Անդամ (Member)
+4) Դիտորդ (Viewer)
+5) Հյուր (Guest)
+
+Project-level guest դերեր՝
+- Կառավարիչ (Manager)
+- Խմբագիր (Editor)
+- Դիտորդ (Viewer)
+
+Կատարված է՝
+- permissions model՝ կենտրոնացված module-ում,
+- role-based create/update/delete սահմանափակումներ,
+- Team & Roles UI,
+- անդամ ավելացնել,
+- անդամի դերը փոխել,
+- անդամ հեռացնել,
+- guest project access սահմանել,
+- owner protection՝ ownership-ը պատահականորեն չկորցնելու համար,
+- permission regression tests։
+
+Կարևոր սահմանափակում՝
+- Դերերը այս պահին client-side են։
+- Սա դեռ իրական secure multi-user authorization չէ։
+- Authentication/backend/server-side permission enforcement դեռ չկա։
+
+
+7. ԱՌԱՋԱԴՐԱՆՔՆԵՐԻ ԿԱՏԱՐՄԱՆ ՏԵՍԱԿՆԵՐ
+------------------------------------
+Առաջադրանքների համար ավելացվել է պարտադիր «Կատարման տեսակ» դաշտ։
+
+Հաստատված 6 տեսակ՝
+1) Ծանոթանալ և զեկուցել
+2) Ի կատարում
+3) Պատրաստել գրություն
+4) Կազմակերպել հանդիպում
+5) Պատրաստել փաստաթղթեր
+6) Ընդունել ի գիտություն
+
+Միաժամանակ՝
+- «Անելիք» status անվանումը փոխարինվել է «Առաջադրանք» անվանումով։
+- Status progression-ը պահպանվել է՝ Առաջադրանք → Ընթացքում → Ավարտված։
+- Կատարման տեսակը առանձին business classification է և չի խառնվում status-ի հետ։
+- Ավելացվել է filter ըստ կատարման տեսակի։
+- Search-ը նաև հաշվի է առնում կատարման տեսակը։
+
+
+8. ԿԱՏԱՐՄԱՆ ԺԱՄԿԵՏ
+-----------------
+Նոր առաջադրանքի համար կատարման ժամկետը դարձել է պարտադիր դաշտ։
+
+Պահպանման validation՝
+- վերնագիրը պարտադիր է,
+- կատարման տեսակը պարտադիր է,
+- կատարման ժամկետը պարտադիր է։
+
+Հին task-երի համար համակարգը չի հորինում կեղծ deadline/type։
+Եթե legacy task-ում դրանք բացակայում են, տվյալը պահպանվում է, սակայն խմբագրման/պահպանման ժամանակ պահանջվում է լրացնել։
+
+
+9. ԱՌԱՋԱԴՐԱՆՔԻ ՄԵԿՆԱԲԱՆՈՒԹՅՈՒՆՆԵՐ
+----------------------------------
+Task modal-ում ավելացվել է comments thread։
+
+Մեկնաբանությունը պահում է՝
+- comment ID,
+- author ID,
+- author name,
+- text,
+- createdAt timestamp։
+
+Մեկնաբանելու իրավունք ունեն՝
+- Owner,
+- Admin,
+- Member,
+- Viewer։
+
+Guest-ը այս պահին մեկնաբանելու իրավունք չունի։
+
+Լրացուցիչ՝
+- Viewer-ը կարող է մեկնաբանել, բայց չի կարող task fields խմբագրել։
+- Comments count-ը երևում է task card/list-ում։
+- Search-ը ներառում է comments text-ը։
+- Comments-ը պահպանվում են backup/export-ում։
+- Storage migration tests են ավելացվել comments-ի համար։
+- Task save logic-ը պաշտպանված է, որպեսզի comment history-ն հին modal snapshot-ով չվերագրվի։
+
+
+10. MOBILE / RESPONSIVE FIX
+--------------------------
+Mobile տարբերակում առաջադրանքի modal-ի scrolling/alignment խնդիրները շտկվել են։
+
+Կատարված է՝
+- task modal-ը mobile-ում դարձել է full-screen sheet/modal,
+- modal-ն ունի սեփական scroll,
+- background page scroll-ը modal բաց ժամանակ արգելափակվում է,
+- modal header-ը հասանելի/sticky է,
+- close button-ը հասանելի է,
+- bottom action area-ը հարմարեցված է mobile-ին,
+- comments section-ի nested scrolling behavior-ը կարգավորվել է,
+- search/filter/header alignment-ը փոքր էկրանների համար շտկվել է,
+- ստեղծվել է առանձին mobile.css։
+
+
+11. DESIGN SYSTEM / ԳՈՒՅՆԵՐ
+---------------------------
+Ստեղծվել է Julo Design System-ի առաջին հիմքը։
+
+Repo-ում ավելացվել է՝
+- webapp/src/design-system.css
+- webapp/DESIGN_SYSTEM.md
+
+Կառուցվածք՝
+1) Palette tokens
+2) Semantic tokens
+3) Component-level օգտագործում
+
+Գունային խմբեր՝
+- Primary,
+- Neutral,
+- Success,
+- Warning,
+- Danger,
+- Sidebar,
+- Light theme,
+- Dark theme։
+
+Նպատակ՝
+- հետագայում HEX արժեքները ամբողջ CSS-ում առանձին չփոխել,
+- ընդհանուր theme/brand փոփոխությունները անել կենտրոնացված token-ներով,
+- layout/mobile logic-ը չխառնել color system-ի հետ։
+
+Ներկայիս հիմնական brand accent-ը պահվել է, այնպես որ Design System ներդնելիս դիտավորյալ մեծ visual redesign չի կատարվել։
+
+
+12. GITHUB PAGES / LIVE DEPLOYMENT
+---------------------------------
+Webapp-ը հրապարակվել է GitHub Pages-ում։
+
+Պաշտոնական live հասցե՝
+https://suren-star.github.io/Julo/
+
+Կատարված է՝
+- Vite base configuration-ը դարձվել է Pages/static friendly,
+- GitHub Pages source-ը միացվել է GitHub Actions-ին,
+- deploy workflow-ը աշխատում է webapp փոփոխությունների համար,
+- workflow-ը կատարում է tests → production build → Pages artifact → deploy։
+
+Ներկայիս development flow-ը՝
+1) փոփոխություն main-ում,
+2) regression tests,
+3) production build,
+4) GitHub Pages deployment։
+
+Վերջին Design System փուլում tests/build/deploy-ը հաջողությամբ ավարտվել են։
+
+
+13. CI / TESTING
+----------------
+Webapp-ի համար կան regression tests՝ առնվազն հետևյալ ուղղություններով՝
+- workspace migration,
+- backup round-trip,
+- invalid backup rejection,
+- roles/permissions,
+- guest project access,
+- task execution type migration,
+- deadline preservation,
+- comments preservation/migration։
+
+GitHub Pages workflow-ը production build-ից առաջ աշխատեցնում է regression tests։
+
+
+14. ՆԵՐԿԱՅԻՍ ARCHITECTURE / ՍԱՀՄԱՆԱՓԱԿՈՒՄՆԵՐ
+-------------------------------------------
+Webapp-ն այս պահին իրական local-first beta է, բայց դեռ ամբողջական SaaS չէ։
+
+Գործող է՝
+- browser local storage,
+- task/project management,
+- roles model,
+- comments,
+- backup/import/export,
+- responsive/mobile UI,
+- Pages deployment։
+
+Դեռ չկա՝
+- user authentication,
+- backend/API,
+- database,
+- իրական multi-user realtime sync,
+- server-side permissions,
+- invites/email flows,
+- remote file storage,
+- audit/activity backend log,
+- notification service,
+- ownership transfer secure flow։
+
+Այս պատճառով այս պահին մի browser-ի workspace data-ն չի համաժամացվում այլ user/device-ի հետ։
+
+
+15. ՈՐՏԵՂ ԵՆՔ ԿԱՆԳ ԱՌԵԼ ՀԻՄԱ
+-----------------------------
+Վերջին ավարտված փուլը՝
+Julo Design System + mobile modal stabilization + task comments + task execution classification։
+
+Այս պահի stable վիճակը՝
+- Desktop-ը առանձնացված և սառեցված է։
+- Desktop localization-ը հետաձգված է մինչև JULO_TRANSLATIONS.txt-ի լրացում։
+- Webapp-ը live է GitHub Pages-ում։
+- Webapp-ի core task/project flow-ը աշխատում է։
+- Roles/permissions client-side հիմքը կա։
+- Task execution type + mandatory deadline կա։
+- Task comments կա մինչև Viewer role ներառյալ։
+- Mobile modal/scroll fix-ը կա։
+- Design System tokens-ը միացված են։
+- CI/tests/build/deploy pipeline-ը կանաչ է։
+
+
+16. ՀԱՋՈՐԴ ՏՐԱՄԱԲԱՆԱԿԱՆ ՓՈՒԼԵՐԸ
+--------------------------------
+Առաջնահերթ հաջորդ մեծ որոշումը՝ backend/auth architecture։
+Առանց դրա թիմային դերերը և մեկնաբանությունները դեռ միայն local simulation/client-side model են։
+
+Հնարավոր հաջորդ հերթականություն՝
+1) Authentication և user accounts։
+2) Workspace/backend տվյալների բազա։
+3) Server-side roles/permissions։
+4) Workspace invitations/member onboarding։
+5) Task assignment՝ կոնկրետ կատարող/պատասխանատու անձանց։
+6) Activity/history/audit trail։
+7) Notifications/reminders։
+8) Realtime կամ sync strategy։
+9) Advanced views/filters/reporting։
+10) Desktop localization-ի ավարտ՝ user-filled translation catalog-ից։
+
+
+17. ԿԱՐԵՎՈՐ ՊԱՀՊԱՆՎՈՂ ՈՐՈՇՈՒՄՆԵՐ
+--------------------------------
+- Desktop և Webapp-ը պետք է մնան առանձին ուղղություններ։
+- Desktop-ը ներկայումս չպետք է feature-wise ընդլայնվի առանց առանձին որոշման։
+- Webapp-ը Julo-ի հիմնական զարգացող ուղղությունն է։
+- User-facing UI-ն առաջնահերթ հայերեն է։
+- Desktop Armenian localization-ը պետք է հիմնվի JULO_TRANSLATIONS.txt user-approved mapping-ի վրա։
+- Workspace data migration-ը պետք է լինի backward compatible։
+- Task-ի կատարման ժամկետը նոր task-երի համար պարտադիր է։
+- Task execution type-ը նոր task-երի համար պարտադիր է։
+- Comments-ը հասանելի են Owner/Admin/Member/Viewer դերերին։
+- Design փոփոխությունները պետք է հնարավորինս օգտագործեն կենտրոնացված Design System tokens։
+- Յուրաքանչյուր Summary Report պետք է ստեղծվի reports/ թղթապանակում որպես ՆՈՐ TXT ֆայլ և չփոխարինի նախորդ հաշվետվությունները։
+
+
+18. ՀԻՄՆԱԿԱՆ REPO ՖԱՅԼԵՐ / ՈՒՂԵՑՈՒՅՑ
+------------------------------------
+- desktop/                         Desktop Electron application
+- webapp/                          Julo standalone web application
+- webapp/src/App.jsx               հիմնական Web UI/business interaction
+- webapp/src/lib/storage.js        workspace storage/migration/backup
+- webapp/src/lib/permissions.js    role/permission model
+- webapp/src/lib/task-types.js     task execution type definitions
+- webapp/src/styles.css            հիմնական layout/components
+- webapp/src/management.css        management/comments/role styles
+- webapp/src/mobile.css            mobile interaction/layout overrides
+- webapp/src/design-system.css     centralized design/color tokens
+- webapp/DESIGN_SYSTEM.md          design system documentation
+- webapp/tests/                    regression tests
+- JULO_TRANSLATIONS.txt            desktop localization mapping template
+- localization-catalog.json        extracted desktop localization catalog
+- reports/                         փուլային summary reports
+
+
+ՎԵՐՋՆԱԿԱՆ ԿԱՐԳԱՎԻՃԱԿ
+--------------------
+Julo-ն անցել է սկզբնական desktop fork/stabilization փուլից դեպի առանձին live web product-ի կառուցման փուլ։
+Ներկայում ունենք աշխատող local-first beta webapp՝ նախագծերով, առաջադրանքներով, պարտադիր կատարման տեսակ/ժամկետով, դերերով, մեկնաբանություններով, backup-ով, mobile support-ով, Design System-ով և ավտոմատ GitHub Pages deployment-ով։
+
+Հաջորդ մեծ տեխնիկական սահմանագիծը backend + authentication + իրական multi-user architecture-ն է։
+
+END OF REPORT №001

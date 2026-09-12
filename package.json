@@ -1,0 +1,26 @@
+{
+  "name": "planer",
+  "version": "1.0.0",
+  "description": "Персональный таск-менеджер: раздельные листы, архив по датам, мульти-таймер и Drag-and-Drop",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "build": "electron-packager . Planer --platform=win32 --arch=x64 --icon=src/assets/icon.ico --out=dist --overwrite --prune=true --ignore=\"([/\\\\]|^)(backup|dist|Planer-win32-x64|\\.git|Проект на гитхаб|data|идеи\\.txt|PROJECT_RULES\\.md|5894393\\.ico)\""
+  },
+  "keywords": [
+    "task-manager",
+    "planner",
+    "todo",
+    "electron"
+  ],
+  "author": "Antigravity",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^40.0.0",
+    "electron-packager": "^17.1.2"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.15"
+  }
+}

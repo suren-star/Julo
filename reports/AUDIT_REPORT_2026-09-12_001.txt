@@ -1,0 +1,511 @@
+JULO — WEBAPP SECURITY AUDIT REPORT
+====================================
+Հաշվետվություն №001
+Ամսաթիվ՝ 2026-09-12
+Repository՝ suren-star/Julo
+Audit scope՝ webapp/ + Webapp-ին առնչվող GitHub Actions / GitHub Pages deployment
+ԲԱՑԱՌՎԱԾ Է՝ desktop/ տարբերակի կոդը (օգտատիրոջ հստակ պահանջով)
+
+
+0. EXECUTIVE SUMMARY
+--------------------
+Այս audit-ի ընթացքում Julo Webapp-ի ընթացիկ main branch-ը, production build artifact-ը, package-lock-ը, client-side permission/storage logic-ը և Webapp deployment workflows-ը ստուգվել են անվտանգության տեսանկյունից։
+
+Գլխավոր եզրակացություն՝
+
+- Current production build-ում բաց API key, access token, password, client_secret կամ հայտնի credential pattern ՉԻ ՀԱՅՏՆԱԲԵՐՎԵԼ։
+- Webapp source-ում custom backend/API endpoint, fetch դեպի application server, WebSocket, XMLHttpRequest կամ EventSource ՉԿԱ։
+- Current Webapp-ը static/local-first SPA է, ուստի այս պահին server-side SQL injection, SSRF, backend RCE կամ API authentication bypass attack surface գոյություն չունի։
+- React UI-ում app-level dangerouslySetInnerHTML, innerHTML, eval, new Function, window.open կամ postMessage օգտագործում ՉԻ ՀԱՅՏՆԱԲԵՐՎԵԼ։ User-generated task/comment/project text-ը render է արվում React text nodes-ով, ինչը բնականորեն escape է անում HTML-ը։
+- Latest CI install-ի ժամանակ npm-ը audited 67 packages և հայտնել է `found 0 vulnerabilities`։
+- Installed Vite/esbuild տարբերակները արդեն բարձր են 2026-ին հրապարակված հայտնի path traversal advisory-ների patched սահմաններից։
+
+Սակայն կան կարևոր architecture/repository security բացեր, որոնք պետք է շտկել մինչև Julo-ն իրական multi-user/cloud արտադրանք դարձնելը։
+
+Ընդհանուր գնահատական՝
+
+CURRENT LOCAL-FIRST BETA:       Միջին ռիսկ
+PUBLIC MULTI-USER PRODUCTION:   ՉԻ ԿԱՐԵԼԻ համարել անվտանգ մինչև High findings-ը փակելը
+DIRECT EXPOSED API CREDENTIALS: Չեն հայտնաբերվել
+
+
+1. AUDIT METHODOLOGY / ԻՆՉ Է ՍՏՈՒԳՎԵԼ
+-------------------------------------
+Ստուգվել է՝
+
+- webapp/package.json
+- webapp/package-lock.json
+- webapp/index.html
+- webapp/vite.config.js
+- webapp/src/App.jsx
+- webapp/src/lib/storage.js
+- webapp/src/lib/permissions.js
+- webapp source tree-ի կառուցվածքը
+- latest GitHub Pages production artifact (actual CI-built JS/CSS/HTML)
+- production bundle-ի credential/API pattern scan
+- GitHub Actions deployment workflow
+- մնացած repo workflows, որոնք կարող են փոխել webapp/main branch-ը
+- main branch protection status
+- current repository rulesets
+- .gitignore և .env handling
+- known current Vite / esbuild / React security advisories
+- latest CI npm dependency audit output
+
+Սահմանափակումներ՝
+
+- Սա static/source/supply-chain audit է, ոչ թե լիարժեք external penetration test։
+- GitHub history-ի բոլոր հին blobs-ի forensic secret scan չի կատարվել։ Current tree + current production artifact-ը ստուգվել են։
+- GitHub Pages-ի իրական HTTP response security headers-ը այս connector միջավայրից ամբողջությամբ չի ստուգվել։ App HTML-ի սեփական security policy-ն ստուգվել է։
+- Desktop code-ը դիտավորյալ չի audit արվել։
+
+
+2. SECRET / API KEY AUDIT
+-------------------------
+STATUS: PASS (current state)
+SEVERITY: INFO
+
+Ստուգված credential pattern-ներից ոչ մեկը production bundle-ում չի հայտնաբերվել, ներառյալ՝
+
+- OpenAI-style `sk-...`
+- GitHub PAT `ghp_...` / `github_pat_...`
+- AWS access keys `AKIA...`
+- Slack tokens
+- `client_secret`
+- `api_key` / `apikey`
+- bearer access token patterns
+- Firebase
+- Supabase
+- Stripe
+- Sentry
+- Cloudflare-like integration markers
+
+Current production bundle-ի outbound URL strings-ը հիմնականում React diagnostic URL և W3C namespace-ներ են։
+
+App source-ում `import.meta.env` կամ `process.env` օգտագործում չի հայտնաբերվել։
+
+`.gitignore`-ը պարունակում է՝
+
+.env
+.env.*
+!.env.example
+
+և current repository tree-ում `.env` ֆայլ չի հայտնաբերվել։
+
+ԿԱՐԵՎՈՐ ԿԱՆՈՆ ՀԵՏԱԳԱՅԻ ՀԱՄԱՐ
+------------------------------
+Vite frontend-ում ցանկացած `VITE_*` environment variable վերջնական JS bundle-ի մեջ կարող է հասանելի դառնալ browser-ին։
+
+Հետևաբար երբ backend/API integrations ավելացվեն՝
+
+ՉԻ ԿԱՐԵԼԻ frontend-ում պահել՝
+- OpenAI secret key
+- database admin/service key
+- Stripe secret key
+- private OAuth client_secret
+- GitHub PAT
+- SMTP password
+- այլ private provider secret
+
+Դրանք պետք է լինեն backend/serverless secret store-ում։ Frontend-ին կարելի է տալ միայն իրական public identifiers/public keys։
+
+
+3. HIGH — CLIENT-SIDE ROLES ARE NOT A SECURITY BOUNDARY
+--------------------------------------------------------
+ID: JULO-SEC-H01
+SEVERITY: HIGH architectural blocker for multi-user/cloud use
+CURRENT LOCAL-ONLY IMPACT: Limited
+
+Ներկայիս role/permission համակարգը ամբողջությամբ աշխատում է browser-ում։
+
+Workspace state-ը, ներառյալ՝
+- members
+- role
+- projectRoles
+- currentUserId
+
+պահվում են localStorage-ում։
+
+Սա նշանակում է, որ browser-ի local user-ը կամ նույն origin-ում script execution ստացած attacker-ը կարող է localStorage-ը փոխելով իրեն Owner/Admin դարձնել, փոխել currentUserId-ը կամ data model-ը։
+
+Այս պահին դա հեռավոր multi-user data breach չի ստեղծում, քանի որ shared backend չկա։ Բայց հենց authentication/backend/sync ավելացվի, CLIENT-SIDE permission checks-ը անվտանգության համար բավարար չեն։
+
+ՊԱՐՏԱԴԻՐ լուծում backend փուլում՝
+
+- իրական authentication
+- server-side session/token validation
+- յուրաքանչյուր API request-ի server-side authorization
+- workspace/project membership checks server-ում
+- role changes server-ում
+- object ownership/access checks server-ում
+- client-ի կողմից ուղարկված role/currentUserId-ին երբեք չվստահել
+
+Այս finding-ը պետք է փակվի մինչև իրական բազմաօգտատեր արտադրական գործարկումը։
+
+
+4. HIGH — MAIN BRANCH IS NOT PROTECTED
+---------------------------------------
+ID: JULO-SEC-H02
+SEVERITY: HIGH repository / deployment integrity
+
+GitHub branch metadata-ի համաձայն՝
+
+main protected = false
+required status checks = off
+
+Repository rulesets list-ը նույնպես դատարկ է։
+
+Միաժամանակ Webapp deploy workflow-ը main-ի webapp փոփոխությունից ավտոմատ deploy է անում GitHub Pages։
+
+Այս կառուցվածքում write access ունեցող account/token-ի compromise-ը կամ պատահական direct push-ը կարող է շատ արագ production-ում հայտնվել՝ առանց PR approval/security gate-ի։
+
+Առաջարկվող minimum protection՝
+
+- Protect `main`
+- Require pull request before merging
+- Require CI/status checks
+- Block force pushes
+- Block branch deletion
+- Restrict who can push directly
+- Prefer required review առնվազն production-ին մոտ փուլում
+- Deployment environment protection ըստ անհրաժեշտության
+
+
+5. MEDIUM — DORMANT WRITE-CAPABLE WORKFLOWS
+-------------------------------------------
+ID: JULO-SEC-M01
+SEVERITY: MEDIUM
+
+Repo-ում դեռ կան պատմական/one-shot workflows՝
+
+- .github/workflows/bootstrap-baseline.yml
+- .github/workflows/restructure-platform.yml
+- .github/workflows/restructure-platform-v2.yml
+- .github/workflows/publish-web-preview.yml
+
+Դրանցից մի քանիսը ունեն՝
+
+permissions:
+  contents: write
+
+և կարող են commit/push անել main branch։
+
+Հատկապես bootstrap/restructure workflows-ը կառուցված են մեծ source-tree վերագրումների համար և այլևս production runtime-ի համար անհրաժեշտ չեն։ `publish-web-preview.yml` նույնպես redundant է, քանի որ պաշտոնական GitHub Pages deployment-ը արդեն աշխատում է artifact workflow-ով։
+
+Ռիսկը direct unauthenticated exploit չէ, բայց դրանք ավելացնում են repository supply-chain և accidental overwrite attack surface-ը։
+
+Առաջարկություն՝
+
+- Հեռացնել օգտագործված one-shot bootstrap/restructure workflows-ը։
+- Հեռացնել `publish-web-preview.yml`, եթե raw.githack fallback այլևս պետք չէ։
+- Պահել միայն անհրաժեշտ deployment/testing workflows։
+
+
+6. MEDIUM — COMMITTED STALE `webapp/dist` CREATES SECOND PUBLIC SURFACE
+-----------------------------------------------------------------------
+ID: JULO-SEC-M02
+SEVERITY: MEDIUM operational/security consistency
+
+`webapp/dist/` repository-ում commit արված build artifact կա, մինչդեռ official GitHub Pages-ը deploy է անում CI-ում նորից build արված artifact-ից։
+
+Այսպիսով գոյություն ունեն երկու տարբեր public code surfaces՝
+
+1) official GitHub Pages current build
+2) repository-ում commit արված potentially stale dist (օրինակ՝ raw Git hosting / raw.githack միջոցով)
+
+Stale frontend-ը կարող է չունենալ հետագա bug/security fixes և օգտատերերին շփոթեցնել, թե որն է canonical app-ը։
+
+Առաջարկություն՝
+
+- Official GitHub Pages-ը հայտարարել միակ canonical live build։
+- Repository-ից հեռացնել tracked `webapp/dist/` artifact-ը։
+- `.gitignore`-ում dist-ը արդեն ignore է արվում, ինչը ճիշտ է։
+
+
+7. MEDIUM — PLAINTEXT LOCALSTORAGE / ORIGIN ISOLATION
+-----------------------------------------------------
+ID: JULO-SEC-M03
+SEVERITY: MEDIUM confidentiality/integrity
+
+Julo-ն պահում է workspace-ը plaintext JSON տեսքով browser localStorage-ում՝ key՝
+
+julo_web_workspace_v1
+
+Այստեղ կարող են լինել՝
+- առաջադրանքներ
+- նկարագրություններ
+- comments
+- member names/emails
+- roles/project access
+
+Ռիսկերը՝
+
+- նույն origin-ում XSS ստանալու դեպքում ամբողջ workspace-ը հասանելի է attacker script-ին
+- malicious browser extension/local malware/local profile access-ը կարող է կարդալ տվյալները
+- backup JSON export-ը նույնպես plaintext է
+
+Հատուկ GitHub Pages origin ռիսկ՝
+
+Julo URL-ը գտնվում է `https://suren-star.github.io/Julo/` origin-ում։ localStorage-ը մեկուսացվում է origin-ով, ոչ թե URL path-ով։ Եթե նույն `suren-star.github.io` origin-ում ապագայում աշխատի այլ Pages application և այն compromise լինի, այդ application-ի JavaScript-ը տեսականորեն կարող է հասնել նույն origin-ի localStorage-ին։
+
+Current account-ի մյուս հայտնաբերված public repository-ում Pages enabled չէ, այնպես որ audit պահին հաստատված sibling Pages exposure չի գտնվել։ Բայց architecture risk-ը մնում է ապագայի համար։
+
+Առաջարկություն՝ զգայուն business data-ից առաջ Julo-ին տալ dedicated origin/custom domain, օրինակ՝ առանձին Julo subdomain/domain։
+
+Նշում՝ IndexedDB տեղափոխելը միայնակ չի լուծում same-origin խնդիրը, քանի որ այն նույնպես origin-scoped է։
+
+
+8. MEDIUM — NO EXPLICIT CONTENT SECURITY POLICY
+-----------------------------------------------
+ID: JULO-SEC-M04
+SEVERITY: MEDIUM hardening gap
+
+Current production `index.html`-ում չկա Content-Security-Policy meta policy։
+
+Source review-ով current app-ում ակնհայտ XSS sink չի գտնվել, ինչը դրական է։ Բայց CSP-ն defense-in-depth է՝ future XSS/dependency injection impact-ը սահմանափակելու համար։
+
+Static GitHub Pages deployment-ի պայմաններում կարելի է գոնե դիտարկել strict CSP meta tag, օրինակ policy-ն նախագծելով current local assets-ի շուրջ։ Future backend/CDN integrations ավելացնելիս connect-src/img-src/font-src policy-ն պետք է թարմացվի վերահսկված կերպով։
+
+Նաև ստուգել/կիրառել համապատասխան header/meta policy-ներ՝
+- Referrer-Policy
+- frame embedding protection / CSP frame-ancestors՝ hosting architecture-ի հնարավորությունների դեպքում
+- Permissions-Policy՝ եթե տեղափոխվենք custom hosting/proxy-ի վրա
+
+
+9. MEDIUM — GITHUB ACTIONS SUPPLY-CHAIN HARDENING
+-------------------------------------------------
+ID: JULO-SEC-M05
+SEVERITY: MEDIUM
+
+Deploy workflow-ը օգտագործում է major tags՝
+
+- actions/checkout@v4
+- actions/setup-node@v4
+- actions/configure-pages@v5
+- actions/upload-pages-artifact@v3
+- actions/deploy-pages@v4
+
+Սա սովորական պրակտիկա է, բայց high-assurance supply-chain model-ի համար ավելի անվտանգ է immutable commit SHA pinning-ը։
+
+Բացի դրանից, deploy workflow-ի permissions-ը top-level են՝
+
+contents: read
+pages: write
+id-token: write
+
+Այս պատճառով build job-ը, որտեղ `npm ci` է կատարվում, ստանում է ավելի լայն Pages/OIDC հնարավորություններ, քան միայն compile/test job-ին իրականում անհրաժեշտ է։
+
+Առաջարկություն՝
+
+- Job-level least privilege permissions։
+- Build job՝ միայն անհրաժեշտ read permissions։
+- Deploy job՝ pages: write + id-token: write։
+- Pin critical GitHub Actions-ը immutable SHA-ներով։
+- Հին contents:write workflows-ը հեռացնելու դեպքում ընդհանուր attack surface-ը զգալիորեն կնվազի։
+
+
+10. LOW/MEDIUM — BACKUP IMPORT HAS NO RESOURCE LIMITS
+----------------------------------------------------
+ID: JULO-SEC-L01
+SEVERITY: LOW/MEDIUM local DoS / robustness
+
+Backup import-ը օգտագործում է file.text() + JSON.parse() + normalizeWorkspace()։
+
+Դրական՝
+- JSON-ը չի execute արվում։
+- eval/new Function չկա։
+- fields-ը մեծ մասամբ normalize են արվում։
+
+Բայց չկան հստակ limits՝
+- file size
+- task/project/member count
+- comment count
+- string lengths
+
+Շատ մեծ կամ հատուկ պատրաստված backup file-ը կարող է freeze անել tab-ը, օգտագործել մեծ RAM կամ գերազանցել localStorage quota-ն։
+
+Առաջարկություն՝
+
+- Maximum backup file size (օր. մի քանի MB՝ ըստ product requirement-ի)
+- Maximum entity counts
+- Maximum title/comment/description/tag/email lengths
+- Import validation summary մինչ replace անելը
+- localStorage QuotaExceededError handling
+
+
+11. LOW — IDs ARE NOT SECURITY-GRADE IDENTIFIERS
+------------------------------------------------
+ID: JULO-SEC-L02
+SEVERITY: LOW now; important before backend
+
+Current IDs-ը կառուցվում են՝
+
+Date.now() + Math.random()
+
+Սա cryptographically secure չէ և uniqueness-ը 100% երաշխավորված չէ։ Current local SPA-ի համար ընդունելի beta shortcut է, բայց backend/shared system-ի համար ID-ները պետք է ստեղծվեն server-side կամ `crypto.randomUUID()`/database-generated identifiers-ով։
+
+Normalize logic-ը նույնպես duplicate IDs-ի նկատմամբ strict rejection չունի։ Malicious/invalid backup-ը կարող է ստեղծել logical collisions։
+
+
+12. LOW — NO EXPLICIT SECURITY AUTOMATION IN REPO
+-------------------------------------------------
+ID: JULO-SEC-L03
+SEVERITY: LOW process gap
+
+Current workflows-ում առանձին security automation չի երևում՝ օրինակ՝
+
+- CodeQL / static analysis
+- scheduled dependency audit
+- Dependabot update config
+- explicit secret scanning/push protection verification
+
+Latest npm install-ը ցույց է տալիս 0 known vulnerabilities, բայց automated monitoring-ը պետք է շարունակական լինի։
+
+Առաջարկություն՝
+
+- Enable/verify Dependabot alerts and updates
+- Add CodeQL JavaScript scanning
+- Enable/verify GitHub secret scanning + push protection
+- Optional scheduled `npm audit`/dependency review policy
+
+
+13. POSITIVE FINDINGS / ԼԱՎ ԱՆՎՏԱՆԳՈՒԹՅԱՆ ԿԵՏԵՐ
+------------------------------------------------
+PASS-01: Current production bundle-ում credential/API secret չի հայտնաբերվել։
+
+PASS-02: Current source tree-ում `.env` file չկա և `.gitignore`-ը ճիշտ ignore է անում `.env` / `.env.*`։
+
+PASS-03: App source-ում custom network backend calls չկան։
+
+PASS-04: App source-ում dangerouslySetInnerHTML/innerHTML/eval/new Function չի հայտնաբերվել։
+
+PASS-05: User-generated text-ը JSX text rendering-ով է ցուցադրվում, ինչը նվազեցնում է stored XSS ռիսկը։
+
+PASS-06: Backup import-ը JSON.parse է անում, ոչ թե execute։
+
+PASS-07: Production artifact-ում source map `.map` files չկան։
+
+PASS-08: package-lock ունի exact resolved versions և integrity hashes, CI-ն օգտագործում է `npm ci`։
+
+PASS-09: Latest CI npm audit output՝ 67 packages, 0 vulnerabilities։
+
+PASS-10: Vite resolved version՝ 7.3.6։ Հայտնի 2026 Vite advisories, որոնք audit-ում ստուգվել են, patched էին 7.3.2/7.3.5-ից սկսած։
+
+PASS-11: esbuild resolved version՝ 0.28.2, որը բարձր է 0.28.1 patched boundary-ից ստուգված Windows arbitrary-file-read advisory-ի համար։
+
+PASS-12: React Server Components-ի հայտնի 2025/2026 high/critical advisories-ը այս current SPA-ի վրա անմիջապես չեն կիրառվում, քանի որ project-ը չունի react-server-dom-* / RSC server stack և չունի server functions։
+
+PASS-13: Official Pages deploy workflow-ը source repository-ի նկատմամբ ունի `contents: read`, ոչ թե contents:write։
+
+
+14. EXTERNAL INTRUSION ATTACK SURFACE — CURRENT STATE
+----------------------------------------------------
+Ներկա պահին արտաքին attacker-ի համար browser app-ի direct remote attack surface-ը հարաբերականորեն փոքր է, որովհետև՝
+
+- backend չկա
+- login API չկա
+- database API չկա
+- upload server չկա
+- WebSocket server չկա
+- public custom REST/GraphQL endpoint չկա
+- server function չկա
+
+Այսինքն audit-ի պահին չկա այնպիսի բաց API, որի վրա կարելի է remote credential stuffing/SQLi/SSRF/RCE փորձել։
+
+Ամենահավանական compromise ուղիները current architecture-ում ավելի շատ supply-chain/origin/browser nature ունեն՝
+
+1) GitHub account/token compromise + unprotected main -> malicious deploy
+2) GitHub Actions/dependency supply-chain compromise
+3) same-origin script compromise -> localStorage read/write
+4) future XSS -> all local workspace data exposure
+5) malicious oversized backup -> local DoS/data overwrite
+
+
+15. API / BACKEND ԱՎԵԼԱՑՆԵԼԻՍ ՊԱՐՏԱԴԻՐ SECURITY GATE
+----------------------------------------------------
+Մինչև իրական backend/auth ավելացնելը պետք է նախագծել՝
+
+AUTHENTICATION
+- password/OAuth/passkey provider
+- secure session lifecycle
+- MFA option ըստ product requirement-ի
+
+AUTHORIZATION
+- server-side workspace role checks
+- server-side project membership checks
+- object-level authorization (BOLA/IDOR protection)
+- never trust currentUserId/role from frontend
+
+API SECURITY
+- schema validation
+- input size limits
+- rate limiting
+- CORS allowlist
+- CSRF protection, եթե auth cookie-based է
+- secure cookie flags՝ HttpOnly/Secure/SameSite
+- audit logging
+- request IDs / monitoring
+
+SECRETS
+- server-side secret manager
+- never expose provider secrets through VITE_*
+- rotate leaked credentials immediately, եթե երբևէ հայտնաբերվեն
+
+DATA
+- tenant/workspace isolation
+- database row-level authorization or equivalent service layer checks
+- backup access control
+- encryption in transit
+- sensitive data at-rest strategy
+
+
+16. REMEDIATION PRIORITY
+------------------------
+P0 — ԱՆՄԻՋԱՊԵՍ / ՄԻՆՉԵՎ ՀԱՋՈՐԴ ՄԵԾ FEATURE ՓՈՒԼԸ
+
+[ ] Protect main branch / add ruleset
+[ ] Remove obsolete contents:write bootstrap/restructure workflows
+[ ] Remove redundant publish-web-preview workflow
+[ ] Remove committed stale webapp/dist and use official Pages as sole live build
+[ ] Narrow workflow permissions per job
+
+P1 — WEBAPP HARDENING
+
+[ ] Add CSP / browser security policy
+[ ] Add backup/input size and length limits
+[ ] Handle localStorage quota errors
+[ ] Add security automation (CodeQL/Dependabot/secret scanning verification)
+[ ] Consider dedicated Julo origin/custom domain before sensitive organizational data
+
+P2 — BEFORE MULTI-USER/BACKEND
+
+[ ] Implement real authentication
+[ ] Implement server-side authorization
+[ ] Server/crypto-grade IDs
+[ ] Backend rate limiting / validation / CORS / CSRF policy
+[ ] Audit log and security monitoring
+[ ] Secrets manager and environment separation
+
+
+17. FINAL AUDIT VERDICT
+-----------------------
+Current Julo Webapp-ը չունի հայտնաբերված բաց API secret կամ ակնհայտ remote-code-execution/web injection vulnerability source-ում։ Current dependency audit-ը clean է։
+
+Սակայն այն դեռ չի կարելի դիտարկել որպես production-grade multi-user security architecture, որովհետև roles/authorship/access-ը client-side են և main branch-ը production deploy-ի նկատմամբ պաշտպանված չէ։
+
+Ամենաառաջնային շտկումները՝
+
+1) GitHub/repository deployment surface-ի hardening
+2) stale write workflows/dist-ի մաքրում
+3) CSP + input limits
+4) հետո՝ backend/auth կառուցելիս server-side authorization-ը դարձնել իրական անվտանգության սահման
+
+AUDIT STATUS:
+- Exposed API credentials: NOT FOUND
+- Known npm vulnerabilities in latest CI: 0 FOUND
+- Direct server/API attack surface: NONE CURRENTLY
+- XSS dangerous source sinks: NOT FOUND in app source
+- Repository/deployment hardening gaps: FOUND
+- Client-side authorization limitation: FOUND / IMPORTANT
+- Desktop audit: NOT PERFORMED (explicitly excluded)
+
+END OF REPORT

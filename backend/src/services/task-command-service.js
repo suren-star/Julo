@@ -4,13 +4,28 @@ import { validateTaskStatusTransition } from '../domain/task-policy.js';
 const EXECUTION_TYPES = new Set(['review_report','execute','prepare_letter','organize_meeting','prepare_documents','acknowledge']);
 const PRIORITIES = new Set(['low','normal','high']);
 const STATUSES = new Set(['todo','doing','done']);
-const PATCH_KEYS = new Set(['expectedVersion','title','description','executionType','dueDate','priority','status']);
+const PATCH_KEYS = new Set(['expectedVersion','title','description','executionType','dueDate','priority','status','assigneeUserIds','primaryAssigneeUserId']);
 
 function serviceError(status, code, message) { const error = new Error(message); error.status=status; error.code=code; return error; }
 function assertId(value, field) { if (typeof value !== 'string' || value.length < 8 || value.length > 80) throw serviceError(400,`invalid_${field}`,`${field} is invalid.`); return value; }
 function expectedVersion(value) { if (!Number.isSafeInteger(value) || value < 1) throw serviceError(400,'invalid_expected_version','expectedVersion must be a positive integer.'); return value; }
 function currentVersion(task) { const value = Number(task?.version); return Number.isSafeInteger(value) ? value : 0; }
 function projectIdOf(task) { return task?.projectId ?? task?.project_id ?? null; }
+
+function normalizeAssignmentPatch(input) {
+  const hasIds = Object.prototype.hasOwnProperty.call(input, 'assigneeUserIds');
+  const hasPrimary = Object.prototype.hasOwnProperty.call(input, 'primaryAssigneeUserId');
+  if (!hasIds && !hasPrimary) return null;
+  if (!hasIds) throw serviceError(400,'assignees_required_with_primary','assigneeUserIds is required when primaryAssigneeUserId is changed.');
+  if (!Array.isArray(input.assigneeUserIds)) throw serviceError(400,'invalid_assignees','assigneeUserIds must be an array.');
+  if (input.assigneeUserIds.length > 100) throw serviceError(400,'too_many_assignees','Too many task assignees.');
+  const assigneeUserIds = [...new Set(input.assigneeUserIds.map((id)=>assertId(id,'assignee_user_id')))];
+  const primaryAssigneeUserId = input.primaryAssigneeUserId == null || input.primaryAssigneeUserId === '' ? null : assertId(input.primaryAssigneeUserId,'primary_assignee_user_id');
+  if (assigneeUserIds.length === 0 && primaryAssigneeUserId) throw serviceError(400,'primary_assignee_without_assignees','Primary assignee requires at least one assignee.');
+  if (assigneeUserIds.length > 0 && !primaryAssigneeUserId) throw serviceError(400,'primary_assignee_required','A primary assignee is required when task assignees are selected.');
+  if (primaryAssigneeUserId && !assigneeUserIds.includes(primaryAssigneeUserId)) throw serviceError(400,'primary_assignee_not_selected','Primary assignee must be one of the selected assignees.');
+  return { assigneeUserIds, primaryAssigneeUserId };
+}
 
 function validatePatch(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw serviceError(400,'invalid_task_patch','Task patch must be an object.');
@@ -23,8 +38,9 @@ function validatePatch(input) {
   if ('dueDate' in input) { if (typeof input.dueDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(input.dueDate)) throw serviceError(400,'invalid_due_date','Due date is invalid.'); changes.dueDate=input.dueDate; }
   if ('priority' in input) { if (!PRIORITIES.has(input.priority)) throw serviceError(400,'invalid_priority','Priority is invalid.'); changes.priority=input.priority; }
   if ('status' in input) { if (!STATUSES.has(input.status)) throw serviceError(400,'invalid_status','Status is invalid.'); changes.status=input.status; }
-  if (Object.keys(changes).length === 0) throw serviceError(400,'empty_task_patch','At least one task field must be changed.');
-  return { version, changes };
+  const assignment = normalizeAssignmentPatch(input);
+  if (Object.keys(changes).length === 0 && !assignment) throw serviceError(400,'empty_task_patch','At least one task field must be changed.');
+  return { version, changes, assignment };
 }
 
 function authorizeContext(context, action) {
@@ -53,14 +69,22 @@ export function createTaskCommandService(repository) {
         if (!transition.allowed) throw serviceError(409, transition.reason, 'Task status transition is not allowed.');
 
         const now = new Date();
+        if (patch.assignment) {
+          const invalid = await context.tx.validateAssignees(projectIdOf(context.task), patch.assignment.assigneeUserIds);
+          if (invalid.length) throw serviceError(400,'ineligible_task_assignee','One or more selected users cannot be assigned to this task.');
+          await context.tx.replaceAssignees(patch.assignment.assigneeUserIds, patch.assignment.primaryAssigneeUserId, now);
+        }
         if (transition.timerEffect === 'stop_completed') await context.tx.completeTimer(now);
         if (transition.timerEffect === 'reopen_paused') await context.tx.reopenTimer(now);
 
         const updated = await context.tx.updateTask(patch.changes, patch.version, now);
         if (!updated) throw serviceError(409,'task_version_conflict','Task changed since it was loaded.');
-        await context.tx.audit('task.updated', { fields: Object.keys(patch.changes), fromVersion: patch.version, toVersion: patch.version + 1 });
+        const fields = Object.keys(patch.changes);
+        if (patch.assignment) fields.push('assignees');
+        await context.tx.audit('task.updated', { fields, fromVersion: patch.version, toVersion: patch.version + 1 });
+        if (patch.assignment) await context.tx.audit('task.assignees.changed', patch.assignment);
         if (currentStatus !== nextStatus) await context.tx.audit('task.status.changed', { from: currentStatus, to: nextStatus, timerEffect: transition.timerEffect });
-        return updated;
+        return patch.assignment ? { ...updated, assignee_user_id: patch.assignment.primaryAssigneeUserId, assigneeUserIds: patch.assignment.assigneeUserIds, primaryAssigneeUserId: patch.assignment.primaryAssigneeUserId } : updated;
       });
     },
 

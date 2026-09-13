@@ -46,11 +46,6 @@ function parseCookies(header) {
 
 function requestIp(req) { return req.socket?.remoteAddress || 'unknown'; }
 
-function originIsAllowed(req, allowedOrigins) {
-  const origin = String(req.headers.origin ?? '');
-  return Boolean(origin && allowedOrigins.includes(origin));
-}
-
 function applyCors(req, res, allowedOrigins) {
   const origin = String(req.headers.origin ?? '');
   if (!origin || !allowedOrigins.includes(origin)) return false;
@@ -123,6 +118,13 @@ export function createHttpServer({ authService, workspaceService, taskCommandSer
         const userId = session.user.id;
 
         if (req.method === 'GET' && url.pathname === '/api/workspaces') return json(res, 200, { workspaces: await workspaceService.listWorkspaces(userId) });
+
+        const assigneeCandidates = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/task-assignees$/);
+        if (req.method === 'GET' && assigneeCandidates) {
+          const workspaceId = decodeURIComponent(assigneeCandidates[1]);
+          const projectId = url.searchParams.get('projectId');
+          return json(res, 200, { assignees: await workspaceService.listTaskAssigneeCandidates(userId, workspaceId, projectId) });
+        }
 
         const taskMutation = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/tasks\/([^/]+)(?:\/timer\/(start|pause|stop))?$/);
         if (taskMutation) {

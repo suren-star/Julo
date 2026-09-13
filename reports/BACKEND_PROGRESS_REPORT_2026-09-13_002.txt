@@ -1,0 +1,145 @@
+JULO BACKEND PROGRESS REPORT
+Date: 2026-09-13
+Sequence: 002
+Branch: backend-auth-foundation
+PR: #2 (draft, unmerged)
+
+1. WHERE WE ARE NOW
+
+Backend Phase 1-4 are implemented on the draft branch while the existing webapp and desktop baseline remain unchanged.
+
+Completed foundation:
+- PostgreSQL schema for users, credentials, sessions, workspaces, workspace memberships, projects, project memberships, tasks, comments, task timers and audit events.
+- Server-side authorization for Owner/Admin/Member/Viewer/Guest roles.
+- Project-level Guest roles: Manager/Editor/Viewer.
+- Password hashing with scrypt and opaque session tokens stored only as digests.
+- Register/login/logout/session service and HTTP routes.
+- Server-owned workspace/project/task access. Client currentUserId/role claims are not trusted.
+- Task creation with required title, execution type and due date.
+- Transactional task update/status transitions using expectedVersion optimistic concurrency.
+- Timer start/pause/stop commands, one-running-timer-per-workspace behavior, auto-pause, completion stop and Owner/Admin reopen semantics.
+- Workspace-level DB locking for task/timer command serialization.
+- Audit-event writes for task/timer mutations.
+- Read-only GitHub backend CI with install, npm audit, tests and syntax checks.
+
+Latest verified backend CI:
+- Validate Julo Backend run #6
+- Result: SUCCESS
+- Install: SUCCESS
+- npm audit: SUCCESS
+- backend tests: SUCCESS
+- syntax checks: SUCCESS
+
+The PR remains draft and has not been merged to main.
+
+2. CURRENT ROLE DEFAULTS
+
+Owner / Սեփականատեր
+- Full workspace access (*).
+- Manage workspace members.
+- Update workspace settings.
+- Export workspace.
+- Create, rename/update and delete projects.
+- Create, update and delete tasks.
+- Read tasks.
+- Add comments.
+- Control timers.
+- Reopen completed tasks from done -> doing.
+
+Admin / Ադմինիստրատոր
+- Manage workspace members.
+- Update workspace settings.
+- Export workspace.
+- Create, update and delete projects.
+- Create, update and delete tasks.
+- Read tasks.
+- Add comments.
+- Control timers.
+- Reopen completed tasks from done -> doing.
+
+Member / Անդամ
+- Export workspace.
+- Create and update projects.
+- Create, update and delete tasks.
+- Read tasks.
+- Add comments.
+- Control timers.
+- Cannot manage workspace members.
+- Cannot reopen completed tasks.
+
+Viewer / Դիտորդ
+- Read tasks.
+- Add comments.
+- Export workspace.
+- Cannot edit task fields.
+- Cannot control timers.
+- Cannot reopen completed tasks.
+
+Guest / Հյուր
+- No global workspace permissions.
+- Access is project-scoped through project membership.
+- Guest Manager: project update + task create/update/delete/read + timer.
+- Guest Editor: task create/update/delete/read + timer.
+- Guest Viewer: read only.
+- Guest roles do not grant task comments.
+
+3. NEW SCOPE STARTING AFTER THIS REPORT
+
+A. Login / registration experience
+- Add username-based authentication support in addition to the existing server session model.
+- Add Login and Registration pages to the webapp as the first entry experience for backend mode.
+- Do not rely on client role claims after login.
+
+B. Development test users
+Create an idempotent development/test seed for one workspace with five users:
+- owner1 / 12345 -> Owner / Սեփականատեր
+- admin1 / 12345 -> Admin / Ադմինիստրատոր
+- member1 / 12345 -> Member / Անդամ
+- viewer1 / 12345 -> Viewer / Դիտորդ
+- guest1 / 12345 -> Guest / Հյուր
+
+Security note:
+These short shared passwords are explicitly TEST/DEVELOPMENT ONLY. They must never be provisioned in production. Existing production password policy remains stronger and should not be weakened globally just to support these fixtures.
+
+C. Project management and assignments
+- Owner must be able to create, rename/update and delete projects (already authorized; API management endpoints still need implementation).
+- Add explicit project team assignment management.
+- A new project starts with no explicit assigned team members; workspace Owner/Admin retain their workspace-level authority independently.
+- Members/Viewers/Guests can then be assigned to projects according to allowed project/member rules.
+- Project assignments must be server-owned and audit logged.
+
+D. Notes / «Հիշեցումներ»
+Add a lightweight reminder entity and UI section named «Հիշեցումներ».
+Required fields:
+- date / ամսաթիվ
+- title / վերնագիր
+- description / նկարագիր
+- label / պիտակ
+
+Behavior:
+- Notes are intentionally lighter than tasks and do not require task status, execution type, due date semantics or timer.
+- A note can be converted to a task with an explicit action/button.
+- Conversion should be transactional: create the task, preserve/link the source note and audit the conversion.
+- The conversion flow must request/derive required task-only fields (at minimum execution type and due date) before task creation.
+
+4. IMPLEMENTATION ORDER
+
+1. Add DB migration for username identity, notes and assignment/conversion metadata as needed.
+2. Extend auth service/repository for username login/registration without weakening production password policy.
+3. Add idempotent TEST seed for the five requested users.
+4. Add project CRUD and project-team assignment endpoints with server-side authorization.
+5. Add Notes repository/service/API and note -> task conversion command.
+6. Add webapp Login/Registration pages and Notes section using an API client boundary.
+7. Add tests for role defaults, test seed, project assignments, notes and conversion.
+8. Run npm audit, backend tests, webapp tests/build/security checks and GitHub CI.
+
+5. STILL OPEN AFTER THIS SCOPE
+
+- Concrete PostgreSQL production driver/pool/deployment configuration and real PostgreSQL CI integration.
+- Production database/API hosting selection.
+- Shared/distributed rate-limit storage for multi-instance deployment.
+- Full webapp data migration from localStorage to backend API.
+- main branch protection in GitHub admin settings.
+- Dedicated production domain/origin before sensitive organizational use.
+
+END OF REPORT

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { backendApi } from '../lib/api-client.js';
+import BackendTasksDrawer from './BackendTasksDrawer.jsx';
 
 const TEST_LOGINS = [
   ['owner1','Սեփականատեր'],['admin1','Ադմինիստրատոր'],['member1','Անդամ'],['viewer1','Դիտորդ'],['guest1','Հյուր'],
@@ -120,7 +121,7 @@ export default function AuthGateway({children}) {
   if(state.loading)return <main className="auth-page"><div className="auth-card">Julo-ը բեռնվում է…</div></main>;
   if(!state.session)return <AuthPage onAuthenticated={refresh}/>;
   const canManageProjects=['owner','admin'].includes(state.workspace?.role);
-  return <div className="backend-gateway">{children}<div className="backend-toolbar"><span>{state.session.user.displayName} · {state.workspace?.role||'—'}</span><button onClick={()=>setDrawer(drawer==='notes'?'':'notes')}>◷ Հիշեցումներ</button>{canManageProjects&&<button onClick={()=>setDrawer(drawer==='team'?'':'team')}>♙ Նախագծի թիմ</button>}<button onClick={async()=>{await backendApi.logout();setDrawer('');await refresh()}}>Ելք</button></div>
-    {state.workspace&&<NotesDrawer workspace={state.workspace} open={drawer==='notes'} onClose={()=>setDrawer('')}/>} {state.workspace&&canManageProjects&&<ProjectTeamDrawer workspace={state.workspace} open={drawer==='team'} onClose={()=>setDrawer('')}/>} 
+  return <div className="backend-gateway">{children}<div className="backend-toolbar"><span>{state.session.user.displayName} · {state.workspace?.role||'—'}</span><button onClick={()=>setDrawer(drawer==='tasks'?'':'tasks')}>☷ Առաջադրանքներ</button><button onClick={()=>setDrawer(drawer==='notes'?'':'notes')}>◷ Հիշեցումներ</button>{canManageProjects&&<button onClick={()=>setDrawer(drawer==='team'?'':'team')}>♙ Նախագծի թիմ</button>}<button onClick={async()=>{await backendApi.logout();setDrawer('');await refresh()}}>Ելք</button></div>
+    {state.workspace&&<BackendTasksDrawer workspace={state.workspace} user={state.session.user} open={drawer==='tasks'} onClose={()=>setDrawer('')}/>} {state.workspace&&<NotesDrawer workspace={state.workspace} open={drawer==='notes'} onClose={()=>setDrawer('')}/>} {state.workspace&&canManageProjects&&<ProjectTeamDrawer workspace={state.workspace} open={drawer==='team'} onClose={()=>setDrawer('')}/>} 
   </div>;
 }

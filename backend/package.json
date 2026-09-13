@@ -8,5 +8,8 @@
     "start": "node src/runtime.js",
     "test": "node --test tests/*.test.mjs",
     "check": "node --check src/security/password.js && node --check src/security/session-token.js && node --check src/auth/auth-service.js && node --check src/domain/authorization.js && node --check src/domain/task-policy.js && node --check src/domain/service-validation.js && node --check src/db/transaction.js && node --check src/db/postgres-repository.js && node --check src/db/postgres-task-commands.js && node --check src/db/postgres-project-notes.js && node --check src/db/migrations.js && node --check src/http/rate-limit.js && node --check src/http/server.js && node --check src/services/access-context.js && node --check src/services/workspace-service.js && node --check src/services/task-command-service.js && node --check src/services/project-notes-service.js && node --check src/testing/test-users.js && node --check src/app.js && node --check src/runtime.js"
+  },
+  "dependencies": {
+    "pg": "8.13.1"
   }
 }

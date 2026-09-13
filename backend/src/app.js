@@ -7,7 +7,7 @@ import { createProjectNotesService } from './services/project-notes-service.js';
 import { createTaskCommandService } from './services/task-command-service.js';
 import { createWorkspaceService } from './services/workspace-service.js';
 
-export function createJuloBackend({ pool, secureCookies = true, allowedOrigins = [], auth = {} }) {
+export function createJuloBackend({ pool, secureCookies = true, crossSiteCookies = false, allowedOrigins = [], auth = {} }) {
   const repository = createPostgresRepository(pool);
   const taskCommandRepository = createPostgresTaskCommandRepository(pool);
   const projectNotesRepository = Object.assign(repository, createPostgresProjectNotesRepository(pool));
@@ -15,6 +15,6 @@ export function createJuloBackend({ pool, secureCookies = true, allowedOrigins =
   const workspaceService = createWorkspaceService(repository);
   const taskCommandService = createTaskCommandService(taskCommandRepository);
   const projectNotesService = createProjectNotesService(projectNotesRepository);
-  const server = createHttpServer({ repository, authService, workspaceService, taskCommandService, projectNotesService, secureCookies, allowedOrigins });
+  const server = createHttpServer({ repository, authService, workspaceService, taskCommandService, projectNotesService, secureCookies, crossSiteCookies, allowedOrigins });
   return { repository, taskCommandRepository, projectNotesRepository, authService, workspaceService, taskCommandService, projectNotesService, server };
 }

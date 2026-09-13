@@ -13,13 +13,6 @@ function assertUuidish(value, field) {
   return value;
 }
 
-function normalizeProjectId(value) {
-  if (value == null) return null;
-  if (typeof value !== 'string') throw serviceError(400, 'invalid_project_id', 'project_id is invalid.');
-  const trimmed = value.trim();
-  return trimmed ? assertUuidish(trimmed, 'project_id') : null;
-}
-
 function normalizeAssignees(input) {
   const raw = input?.assigneeUserIds ?? [];
   if (!Array.isArray(raw)) throw serviceError(400, 'invalid_assignees', 'assigneeUserIds must be an array.');
@@ -28,13 +21,13 @@ function normalizeAssignees(input) {
   const primaryAssigneeUserId = input?.primaryAssigneeUserId == null || input.primaryAssigneeUserId === ''
     ? null
     : assertUuidish(input.primaryAssigneeUserId, 'primary_assignee_user_id');
-  if (assigneeUserIds.length === 0 && primaryAssigneeUserId) {
-    throw serviceError(400, 'primary_assignee_without_assignees', 'Primary assignee requires at least one assignee.');
+  if (assigneeUserIds.length === 0) {
+    throw serviceError(400, 'assignee_required', 'At least one task assignee is required.');
   }
-  if (assigneeUserIds.length > 0 && !primaryAssigneeUserId) {
-    throw serviceError(400, 'primary_assignee_required', 'A primary assignee is required when task assignees are selected.');
+  if (!primaryAssigneeUserId) {
+    throw serviceError(400, 'primary_assignee_required', 'A primary assignee is required.');
   }
-  if (primaryAssigneeUserId && !assigneeUserIds.includes(primaryAssigneeUserId)) {
+  if (!assigneeUserIds.includes(primaryAssigneeUserId)) {
     throw serviceError(400, 'primary_assignee_not_selected', 'Primary assignee must be one of the selected assignees.');
   }
   return { assigneeUserIds, primaryAssigneeUserId };
@@ -49,7 +42,8 @@ function validateNewTask(input) {
   if (description.length > 20_000) throw serviceError(400, 'invalid_description', 'Description is too long.');
   const priority = input?.priority ?? 'normal';
   if (!PRIORITIES.has(priority)) throw serviceError(400, 'invalid_priority', 'Priority is invalid.');
-  return { title, description, executionType: input.executionType, dueDate: input.dueDate, priority, projectId: normalizeProjectId(input?.projectId), ...normalizeAssignees(input) };
+  const projectId = input?.projectId == null || input.projectId === '' ? null : input.projectId;
+  return { title, description, executionType: input.executionType, dueDate: input.dueDate, priority, projectId, ...normalizeAssignees(input) };
 }
 
 export function createWorkspaceService(repository) {
@@ -68,7 +62,6 @@ export function createWorkspaceService(repository) {
   }
 
   async function assertAssigneeEligibility(workspaceId, projectId, assigneeUserIds) {
-    if (!assigneeUserIds.length) return;
     const candidates = await repository.listEligibleTaskAssignees(workspaceId, projectId);
     const allowed = new Set(candidates.map((candidate) => candidate.id));
     const invalid = assigneeUserIds.filter((id) => !allowed.has(id));
@@ -99,7 +92,7 @@ export function createWorkspaceService(repository) {
     async listTaskAssigneeCandidates(userId, workspaceId, projectId = null) {
       const safeWorkspaceId = assertUuidish(workspaceId, 'workspace_id');
       const membership = await getMembership(userId, safeWorkspaceId);
-      const safeProjectId = normalizeProjectId(projectId);
+      const safeProjectId = projectId == null || projectId === '' ? null : assertUuidish(projectId, 'project_id');
       if (membership.role === 'guest') {
         const projectRole = await projectRoleForGuest(userId, safeWorkspaceId, safeProjectId);
         requireProjectPermission({ workspaceRole: membership.role, projectRole, action: ACTIONS.TASK_READ });
@@ -114,6 +107,7 @@ export function createWorkspaceService(repository) {
       const safeWorkspaceId = assertUuidish(workspaceId, 'workspace_id');
       const membership = await getMembership(userId, safeWorkspaceId);
       const task = validateNewTask(input);
+      if (task.projectId !== null) assertUuidish(task.projectId, 'project_id');
 
       if (membership.role === 'guest') {
         const projectRole = await projectRoleForGuest(userId, safeWorkspaceId, task.projectId);

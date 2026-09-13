@@ -17,14 +17,19 @@ export function createAccessContext(repository) {
     return item;
   }
 
-  async function guestProjectRole(userId, workspaceId, projectId) {
-    if (!projectId) {
-      throw serviceError(403, 'project_access_required', 'Guest access requires a project.');
-    }
+  async function projectRole(userId, workspaceId, projectId) {
+    if (!projectId) return null;
     await project(workspaceId, projectId);
     const item = await repository.getProjectMembership(projectId, userId);
     return item?.role ?? null;
   }
 
-  return Object.freeze({ membership, project, guestProjectRole });
+  async function requiredProjectRole(userId, workspaceId, projectId) {
+    if (!projectId) {
+      throw serviceError(403, 'project_access_required', 'This action requires a project.');
+    }
+    return projectRole(userId, workspaceId, projectId);
+  }
+
+  return Object.freeze({ membership, project, projectRole, requiredProjectRole });
 }

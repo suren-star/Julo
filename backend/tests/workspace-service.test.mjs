@@ -24,6 +24,12 @@ test('member can create required-field task and server owns createdBy', async ()
   assert.equal(task.createdBy,'user-12345');
 });
 
+test('empty project selection is normalized to null', async () => {
+  const repo=repoFor('member'); const service=createWorkspaceService(repo);
+  const task=await service.createTask('user-12345','workspace-123',{title:'No project',executionType:'execute',dueDate:'2026-09-20',projectId:''});
+  assert.equal(task.projectId,null);
+});
+
 test('viewer cannot create task', async () => {
   const service=createWorkspaceService(repoFor('viewer'));
   await assert.rejects(()=>service.createTask('user-12345','workspace-123',{title:'X',executionType:'execute',dueDate:'2026-09-20'}),(e)=>e.status===403);

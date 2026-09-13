@@ -2,6 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { backendApi } from '../lib/api-client.js';
 import { WORKSPACE_ROLE_LABELS, canManageProjectMember } from '../lib/server-board.js';
 
+const PROJECT_ROLE_LABELS = {
+  manager: 'Ղեկավար',
+  editor: 'Կատարող',
+  viewer: 'Դիտորդ',
+};
+
 function displayName(member) {
   return member.display_name || member.displayName || member.username_normalized || member.username || member.id;
 }
@@ -161,6 +167,7 @@ export default function ProjectTeamDrawer({ workspace, open, onClose }) {
     <div className="assignment-list">
       {assigned.map((member) => {
         const workspaceRole = workspaceRoleOf(member);
+        const projectRole = projectRoleOf(member);
         const manageable = canManageProjectMember(workspace?.role, workspaceRole);
         return <div key={member.id}>
           <span>
@@ -172,16 +179,16 @@ export default function ProjectTeamDrawer({ workspace, open, onClose }) {
           </span>
           {manageable ? <>
             <select
-              value={projectRoleOf(member)}
+              value={projectRole}
               disabled={busy}
               onChange={(event) => assign(member.id, event.target.value)}
             >
-              <option value="manager">Կառավարիչ</option>
-              <option value="editor">Խմբագիր</option>
+              <option value="manager">Ղեկավար</option>
+              <option value="editor">Կատարող</option>
               <option value="viewer">Դիտորդ</option>
             </select>
             <button type="button" disabled={busy} onClick={() => remove(member.id)}>Հեռացնել</button>
-          </> : <small>{projectRoleOf(member)}</small>}
+          </> : <small>{PROJECT_ROLE_LABELS[projectRole] || projectRole}</small>}
         </div>;
       })}
       {selected && assigned.length === 0 && <div className="drawer-empty">Այս նախագծին դեռ թիմ չի վերագրվել։</div>}
@@ -201,8 +208,8 @@ export default function ProjectTeamDrawer({ workspace, open, onClose }) {
           </span>
           <select value="" disabled={busy || !selected} onChange={(event) => assign(member.id, event.target.value)}>
             <option value="">Վերագրել…</option>
-            <option value="manager">Կառավարիչ</option>
-            <option value="editor">Խմբագիր</option>
+            <option value="manager">Ղեկավար</option>
+            <option value="editor">Կատարող</option>
             <option value="viewer">Դիտորդ</option>
           </select>
         </div>;

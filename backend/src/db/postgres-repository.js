@@ -24,6 +24,27 @@ async function withTransaction(pool, callback) {
   }
 }
 
+const TASK_FIELDS = `
+  t.*,
+  creator.display_name AS creator_name,
+  creator.username_normalized AS creator_username,
+  primary_user.display_name AS primary_assignee_name,
+  primary_user.username_normalized AS primary_assignee_username,
+  COALESCE((
+    SELECT jsonb_agg(
+      jsonb_build_object(
+        'id', assignee_user.id,
+        'displayName', assignee_user.display_name,
+        'username', assignee_user.username_normalized,
+        'isPrimary', ta.is_primary
+      )
+      ORDER BY ta.is_primary DESC, assignee_user.display_name, assignee_user.id
+    )
+    FROM task_assignees ta
+    JOIN users assignee_user ON assignee_user.id = ta.user_id
+    WHERE ta.task_id = t.id
+  ), '[]'::jsonb) AS assignees`;
+
 export function createPostgresRepository(pool) {
   if (!pool || typeof pool.query !== 'function') throw new TypeError('A pg-compatible pool/queryable is required.');
   return {
@@ -152,35 +173,71 @@ export function createPostgresRepository(pool) {
       return result.rows;
     },
 
+    async listEligibleTaskAssignees(workspaceId, projectId = null) {
+      const result = await pool.query(
+        `SELECT u.id, u.display_name, u.username_normalized, wm.role AS workspace_role, pm.role AS project_role
+         FROM workspace_memberships wm
+         JOIN users u ON u.id = wm.user_id
+         LEFT JOIN project_memberships pm
+           ON pm.workspace_id = wm.workspace_id
+          AND pm.user_id = wm.user_id
+          AND pm.project_id = $2::uuid
+         WHERE wm.workspace_id = $1
+           AND wm.status = 'active'
+           AND u.disabled_at IS NULL
+           AND (
+             wm.role IN ('owner','admin','member')
+             OR (wm.role = 'guest' AND $2::uuid IS NOT NULL AND pm.role IN ('manager','editor'))
+           )
+         ORDER BY CASE wm.role WHEN 'owner' THEN 1 WHEN 'admin' THEN 2 WHEN 'member' THEN 3 ELSE 4 END,
+                  u.display_name, u.id`,
+        [workspaceId, projectId]);
+      return result.rows;
+    },
+
     async listTasksForMember(workspaceId, userId, workspaceRole) {
       if (workspaceRole === 'guest') {
         const result = await pool.query(
-          `SELECT t.* FROM tasks t
+          `SELECT ${TASK_FIELDS}
+           FROM tasks t
+           JOIN users creator ON creator.id = t.created_by
+           LEFT JOIN users primary_user ON primary_user.id = t.assignee_user_id
            JOIN project_memberships pm ON pm.project_id = t.project_id AND pm.workspace_id = t.workspace_id
            WHERE t.workspace_id = $1 AND pm.user_id = $2
            ORDER BY t.updated_at DESC, t.id`, [workspaceId, userId]);
         return result.rows;
       }
       const result = await pool.query(
-        `SELECT * FROM tasks WHERE workspace_id = $1 ORDER BY updated_at DESC, id`, [workspaceId]);
+        `SELECT ${TASK_FIELDS}
+         FROM tasks t
+         JOIN users creator ON creator.id = t.created_by
+         LEFT JOIN users primary_user ON primary_user.id = t.assignee_user_id
+         WHERE t.workspace_id = $1
+         ORDER BY t.updated_at DESC, t.id`, [workspaceId]);
       return result.rows;
     },
 
     async createTask(input) {
       return withTransaction(pool, async (client) => {
         const result = await client.query(
-          `INSERT INTO tasks (id, workspace_id, project_id, title, description, status, execution_type, due_date, priority, created_by, tags)
-           VALUES ($1,$2,$3,$4,$5,'todo',$6,$7,$8,$9,$10)
+          `INSERT INTO tasks (id, workspace_id, project_id, title, description, status, execution_type, due_date, priority, assignee_user_id, created_by, tags)
+           VALUES ($1,$2,$3,$4,$5,'todo',$6,$7,$8,$9,$10,$11)
            RETURNING *`,
-          [input.id, input.workspaceId, input.projectId, input.title, input.description, input.executionType, input.dueDate, input.priority, input.createdBy, input.tags ?? []]);
+          [input.id, input.workspaceId, input.projectId, input.title, input.description, input.executionType, input.dueDate, input.priority, input.primaryAssigneeUserId ?? null, input.createdBy, input.tags ?? []]);
+        for (const assigneeUserId of input.assigneeUserIds ?? []) {
+          await client.query(
+            `INSERT INTO task_assignees (task_id, workspace_id, user_id, assigned_by, is_primary)
+             VALUES ($1,$2,$3,$4,$5)`,
+            [input.id, input.workspaceId, assigneeUserId, input.createdBy, assigneeUserId === input.primaryAssigneeUserId]);
+        }
         await client.query(
           `INSERT INTO task_timers (task_id, workspace_id, state, elapsed_ms) VALUES ($1,$2,'idle',0)`,
           [input.id, input.workspaceId]);
         await client.query(
           `INSERT INTO audit_events (workspace_id, actor_user_id, action, entity_type, entity_id, metadata)
            VALUES ($1,$2,'task.created','task',$3,$4::jsonb)`,
-          [input.workspaceId, input.createdBy, input.id, JSON.stringify({ projectId: input.projectId })]);
-        return result.rows[0];
+          [input.workspaceId, input.createdBy, input.id, JSON.stringify({ projectId: input.projectId, assigneeUserIds: input.assigneeUserIds ?? [], primaryAssigneeUserId: input.primaryAssigneeUserId ?? null })]);
+        return { ...result.rows[0], assignees: input.assigneeUserIds ?? [] };
       });
     },
   };

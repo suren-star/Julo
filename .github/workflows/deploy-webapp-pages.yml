@@ -52,6 +52,9 @@ jobs:
 
       - name: Build webapp
         working-directory: webapp
+        env:
+          VITE_JULO_API_BASE_URL: https://julo-test-api.onrender.com
+          VITE_JULO_SHOW_TEST_USERS: 'true'
         run: npm run build
 
       - name: Upload Pages artifact

@@ -1,71 +1,42 @@
 import { randomUUID } from 'node:crypto';
 import { ACTIONS, requireProjectPermission, requireWorkspacePermission } from '../domain/authorization.js';
-
-const EXECUTION_TYPES = new Set(['review_report','execute','prepare_letter','organize_meeting','prepare_documents','acknowledge']);
-const PRIORITIES = new Set(['low','normal','high']);
-
-function serviceError(status, code, message) {
-  const error = new Error(message); error.status = status; error.code = code; return error;
-}
-
-function assertUuidish(value, field) {
-  if (typeof value !== 'string' || value.length < 8 || value.length > 80) throw serviceError(400, `invalid_${field}`, `${field} is invalid.`);
-  return value;
-}
-
-function normalizeAssignees(input) {
-  const raw = input?.assigneeUserIds ?? [];
-  if (!Array.isArray(raw)) throw serviceError(400, 'invalid_assignees', 'assigneeUserIds must be an array.');
-  if (raw.length > 100) throw serviceError(400, 'too_many_assignees', 'Too many task assignees.');
-  const assigneeUserIds = [...new Set(raw.map((id) => assertUuidish(id, 'assignee_user_id')))];
-  const primaryAssigneeUserId = input?.primaryAssigneeUserId == null || input.primaryAssigneeUserId === ''
-    ? null
-    : assertUuidish(input.primaryAssigneeUserId, 'primary_assignee_user_id');
-  if (assigneeUserIds.length === 0) {
-    throw serviceError(400, 'assignee_required', 'At least one task assignee is required.');
-  }
-  if (!primaryAssigneeUserId) {
-    throw serviceError(400, 'primary_assignee_required', 'A primary assignee is required.');
-  }
-  if (!assigneeUserIds.includes(primaryAssigneeUserId)) {
-    throw serviceError(400, 'primary_assignee_not_selected', 'Primary assignee must be one of the selected assignees.');
-  }
-  return { assigneeUserIds, primaryAssigneeUserId };
-}
+import {
+  assertId,
+  assertTaskExecutionType,
+  assertTaskPriority,
+  cleanText,
+  dateOnly,
+  normalizeProjectId,
+  normalizeTaskAssignees,
+  serviceError,
+} from '../domain/service-validation.js';
+import { createAccessContext } from './access-context.js';
 
 function validateNewTask(input) {
-  const title = typeof input?.title === 'string' ? input.title.trim() : '';
-  if (!title || title.length > 500) throw serviceError(400, 'invalid_title', 'Task title is required.');
-  if (!EXECUTION_TYPES.has(input?.executionType)) throw serviceError(400, 'invalid_execution_type', 'Execution type is required.');
-  if (typeof input?.dueDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(input.dueDate)) throw serviceError(400, 'invalid_due_date', 'Due date is required.');
-  const description = typeof input?.description === 'string' ? input.description : '';
-  if (description.length > 20_000) throw serviceError(400, 'invalid_description', 'Description is too long.');
-  const priority = input?.priority ?? 'normal';
-  if (!PRIORITIES.has(priority)) throw serviceError(400, 'invalid_priority', 'Priority is invalid.');
-  const projectId = input?.projectId == null || input.projectId === '' ? null : input.projectId;
-  return { title, description, executionType: input.executionType, dueDate: input.dueDate, priority, projectId, ...normalizeAssignees(input) };
+  const title = cleanText(input?.title, { field: 'title', max: 500 });
+  const description = cleanText(input?.description ?? '', { field: 'description', max: 20_000, required: false, trim: false });
+  return {
+    title,
+    description,
+    executionType: assertTaskExecutionType(input?.executionType, 'Execution type is required.'),
+    dueDate: dateOnly(input?.dueDate, 'due_date'),
+    priority: assertTaskPriority(input?.priority ?? 'normal'),
+    projectId: normalizeProjectId(input?.projectId),
+    ...normalizeTaskAssignees(input),
+  };
 }
 
 export function createWorkspaceService(repository) {
-  async function getMembership(userId, workspaceId) {
-    const membership = await repository.getWorkspaceMembership(workspaceId, userId);
-    if (!membership || membership.status !== 'active') throw serviceError(404, 'workspace_not_found', 'Workspace not found.');
-    return membership;
-  }
-
-  async function projectRoleForGuest(userId, workspaceId, projectId) {
-    if (!projectId) throw serviceError(403, 'project_access_required', 'Guest access requires a project.');
-    const project = await repository.getProject(workspaceId, projectId);
-    if (!project) throw serviceError(404, 'project_not_found', 'Project not found.');
-    const membership = await repository.getProjectMembership(projectId, userId);
-    return membership?.role ?? null;
-  }
+  if (!repository) throw new TypeError('repository is required');
+  const access = createAccessContext(repository);
 
   async function assertAssigneeEligibility(workspaceId, projectId, assigneeUserIds) {
     const candidates = await repository.listEligibleTaskAssignees(workspaceId, projectId);
     const allowed = new Set(candidates.map((candidate) => candidate.id));
     const invalid = assigneeUserIds.filter((id) => !allowed.has(id));
-    if (invalid.length) throw serviceError(400, 'ineligible_task_assignee', 'One or more selected users cannot be assigned to this task.');
+    if (invalid.length) {
+      throw serviceError(400, 'ineligible_task_assignee', 'One or more selected users cannot be assigned to this task.');
+    }
   }
 
   return {
@@ -74,50 +45,57 @@ export function createWorkspaceService(repository) {
     },
 
     async getWorkspace(userId, workspaceId) {
-      const membership = await getMembership(userId, assertUuidish(workspaceId, 'workspace_id'));
-      return repository.getWorkspaceForMember(workspaceId, userId, membership.role);
+      const safeWorkspaceId = assertId(workspaceId, 'workspace_id');
+      const membership = await access.membership(userId, safeWorkspaceId);
+      return repository.getWorkspaceForMember(safeWorkspaceId, userId, membership.role);
     },
 
     async listProjects(userId, workspaceId) {
-      const membership = await getMembership(userId, assertUuidish(workspaceId, 'workspace_id'));
-      return repository.listProjectsForMember(workspaceId, userId, membership.role);
+      const safeWorkspaceId = assertId(workspaceId, 'workspace_id');
+      const membership = await access.membership(userId, safeWorkspaceId);
+      return repository.listProjectsForMember(safeWorkspaceId, userId, membership.role);
     },
 
     async listTasks(userId, workspaceId) {
-      const membership = await getMembership(userId, assertUuidish(workspaceId, 'workspace_id'));
-      requireProjectPermission({ workspaceRole: membership.role, projectRole: membership.role === 'guest' ? 'viewer' : null, action: ACTIONS.TASK_READ });
-      return repository.listTasksForMember(workspaceId, userId, membership.role);
+      const safeWorkspaceId = assertId(workspaceId, 'workspace_id');
+      const membership = await access.membership(userId, safeWorkspaceId);
+      requireProjectPermission({
+        workspaceRole: membership.role,
+        projectRole: membership.role === 'guest' ? 'viewer' : null,
+        action: ACTIONS.TASK_READ,
+      });
+      return repository.listTasksForMember(safeWorkspaceId, userId, membership.role);
     },
 
     async listTaskAssigneeCandidates(userId, workspaceId, projectId = null) {
-      const safeWorkspaceId = assertUuidish(workspaceId, 'workspace_id');
-      const membership = await getMembership(userId, safeWorkspaceId);
-      const safeProjectId = projectId == null || projectId === '' ? null : assertUuidish(projectId, 'project_id');
+      const safeWorkspaceId = assertId(workspaceId, 'workspace_id');
+      const membership = await access.membership(userId, safeWorkspaceId);
+      const safeProjectId = normalizeProjectId(projectId);
+
       if (membership.role === 'guest') {
-        const projectRole = await projectRoleForGuest(userId, safeWorkspaceId, safeProjectId);
+        const projectRole = await access.guestProjectRole(userId, safeWorkspaceId, safeProjectId);
         requireProjectPermission({ workspaceRole: membership.role, projectRole, action: ACTIONS.TASK_READ });
       } else {
         requireWorkspacePermission(membership.role, ACTIONS.TASK_READ);
-        if (safeProjectId && !await repository.getProject(safeWorkspaceId, safeProjectId)) throw serviceError(404, 'project_not_found', 'Project not found.');
+        if (safeProjectId) await access.project(safeWorkspaceId, safeProjectId);
       }
+
       return repository.listEligibleTaskAssignees(safeWorkspaceId, safeProjectId);
     },
 
     async createTask(userId, workspaceId, input) {
-      const safeWorkspaceId = assertUuidish(workspaceId, 'workspace_id');
-      const membership = await getMembership(userId, safeWorkspaceId);
+      const safeWorkspaceId = assertId(workspaceId, 'workspace_id');
+      const membership = await access.membership(userId, safeWorkspaceId);
       const task = validateNewTask(input);
-      if (task.projectId !== null) assertUuidish(task.projectId, 'project_id');
 
       if (membership.role === 'guest') {
-        const projectRole = await projectRoleForGuest(userId, safeWorkspaceId, task.projectId);
+        const projectRole = await access.guestProjectRole(userId, safeWorkspaceId, task.projectId);
         requireProjectPermission({ workspaceRole: membership.role, projectRole, action: ACTIONS.TASK_CREATE });
       } else {
         requireWorkspacePermission(membership.role, ACTIONS.TASK_CREATE);
-        if (task.projectId && !await repository.getProject(safeWorkspaceId, task.projectId)) {
-          throw serviceError(404, 'project_not_found', 'Project not found.');
-        }
+        if (task.projectId) await access.project(safeWorkspaceId, task.projectId);
       }
+
       await assertAssigneeEligibility(safeWorkspaceId, task.projectId, task.assigneeUserIds);
 
       return repository.createTask({

@@ -2,7 +2,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createJuloBackend } from './app.js';
 import { runMigrations } from './db/migrations.js';
-import { resetTestWorkspaceTasks } from './testing/reset-test-tasks.js';
 import { seedRequestedTestUsers } from './testing/test-users.js';
 
 function requiredEnv(name) {
@@ -13,7 +12,9 @@ function requiredEnv(name) {
 
 function parsePort(value) {
   const port = Number(value || 10000);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT is invalid.');
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('PORT is invalid.');
+  }
   return port;
 }
 
@@ -29,11 +30,16 @@ async function main() {
   const databaseUrl = requiredEnv('DATABASE_URL');
   const port = parsePort(process.env.PORT);
   const allowedOrigins = parseOrigins(process.env.JULO_ALLOWED_ORIGINS);
-  if (!allowedOrigins.length) throw new Error('JULO_ALLOWED_ORIGINS must include at least one browser origin.');
+  if (!allowedOrigins.length) {
+    throw new Error('JULO_ALLOWED_ORIGINS must include at least one browser origin.');
+  }
 
   const pgModule = await import('pg');
   const Pool = pgModule.Pool ?? pgModule.default?.Pool;
-  if (typeof Pool !== 'function') throw new Error('PostgreSQL Pool constructor is unavailable.');
+  if (typeof Pool !== 'function') {
+    throw new Error('PostgreSQL Pool constructor is unavailable.');
+  }
+
   const pool = new Pool({
     connectionString: databaseUrl,
     max: Number(process.env.JULO_DB_POOL_MAX || 5),
@@ -60,9 +66,6 @@ async function main() {
     console.log(`Test users seeded in workspace ${result.workspaceId || 'Julo Test Workspace'}.`);
   }
 
-  const reset = await resetTestWorkspaceTasks(pool, process.env);
-  if (reset.reset) console.log(`Test workspace tasks reset; deleted ${reset.deletedTaskCount} task(s).`);
-
   await new Promise((resolve, reject) => {
     backend.server.once('error', reject);
     backend.server.listen(port, '0.0.0.0', () => {
@@ -75,10 +78,15 @@ async function main() {
   const shutdown = async (signal) => {
     console.log(`${signal} received; shutting down.`);
     backend.server.close(async () => {
-      try { await pool.end(); } finally { process.exit(0); }
+      try {
+        await pool.end();
+      } finally {
+        process.exit(0);
+      }
     });
     setTimeout(() => process.exit(1), 10_000).unref();
   };
+
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 }

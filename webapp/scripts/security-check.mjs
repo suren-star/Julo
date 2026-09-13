@@ -3,7 +3,8 @@ import path from 'node:path';
 import process from 'node:process';
 
 const ROOT = process.cwd();
-const SCAN_ROOTS = ['index.html', 'src'];
+const HTML_ENTRIES = ['index.html', 'login/index.html'];
+const SCAN_ROOTS = [...HTML_ENTRIES, 'src'];
 const ALLOWED_EXTENSIONS = new Set(['.js', '.jsx', '.mjs', '.html']);
 
 const rules = [
@@ -18,14 +19,20 @@ const rules = [
 ];
 
 const files = [];
+const seen = new Set();
+
 const collect = (relativePath) => {
+  if (seen.has(relativePath)) return;
   const fullPath = path.join(ROOT, relativePath);
   const stat = fs.statSync(fullPath);
   if (stat.isDirectory()) {
     for (const entry of fs.readdirSync(fullPath)) collect(path.join(relativePath, entry));
     return;
   }
-  if (relativePath === 'index.html' || ALLOWED_EXTENSIONS.has(path.extname(relativePath))) files.push(relativePath);
+  if (HTML_ENTRIES.includes(relativePath) || ALLOWED_EXTENSIONS.has(path.extname(relativePath))) {
+    seen.add(relativePath);
+    files.push(relativePath);
+  }
 };
 
 for (const target of SCAN_ROOTS) collect(target);
@@ -39,9 +46,11 @@ for (const relativePath of files) {
   }
 }
 
-const indexHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-if (!indexHtml.includes('Content-Security-Policy')) findings.push('index.html: Content Security Policy is missing');
-if (!indexHtml.includes('name="referrer"')) findings.push('index.html: Referrer Policy is missing');
+for (const entry of HTML_ENTRIES) {
+  const html = fs.readFileSync(path.join(ROOT, entry), 'utf8');
+  if (!html.includes('Content-Security-Policy')) findings.push(`${entry}: Content Security Policy is missing`);
+  if (!html.includes('name="referrer"')) findings.push(`${entry}: Referrer Policy is missing`);
+}
 
 if (findings.length) {
   console.error('Security checks failed:');
@@ -49,4 +58,4 @@ if (findings.length) {
   process.exit(1);
 }
 
-console.log(`Security checks passed for ${files.length} source files.`);
+console.log(`Security checks passed for ${files.length} source files and ${HTML_ENTRIES.length} HTML entries.`);

@@ -30,7 +30,42 @@ const TASK_FIELDS = `
     FROM task_assignees ta
     JOIN users assignee_user ON assignee_user.id = ta.user_id
     WHERE ta.task_id = t.id
-  ), '[]'::jsonb) AS assignees`;
+  ), '[]'::jsonb) AS assignees,
+  COALESCE((
+    SELECT jsonb_build_object(
+      'state', tt.state,
+      'elapsedMs', tt.elapsed_ms,
+      'startedAt', tt.started_at,
+      'stoppedAt', tt.stopped_at,
+      'stopReason', tt.stop_reason,
+      'updatedAt', tt.updated_at
+    )
+    FROM task_timers tt
+    WHERE tt.task_id = t.id
+  ), jsonb_build_object(
+    'state', 'idle',
+    'elapsedMs', 0,
+    'startedAt', NULL,
+    'stoppedAt', NULL,
+    'stopReason', NULL,
+    'updatedAt', t.updated_at
+  )) AS timer,
+  COALESCE((
+    SELECT jsonb_agg(
+      jsonb_build_object(
+        'id', tc.id,
+        'authorId', tc.author_user_id,
+        'authorName', comment_user.display_name,
+        'text', tc.body,
+        'createdAt', tc.created_at,
+        'editedAt', tc.edited_at
+      )
+      ORDER BY tc.created_at, tc.id
+    )
+    FROM task_comments tc
+    JOIN users comment_user ON comment_user.id = tc.author_user_id
+    WHERE tc.task_id = t.id
+  ), '[]'::jsonb) AS comments`;
 
 export function createPostgresRepository(pool) {
   if (!pool || typeof pool.query !== 'function') {

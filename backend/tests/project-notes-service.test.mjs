@@ -3,20 +3,29 @@ import test from 'node:test';
 import { createProjectNotesService } from '../src/services/project-notes-service.js';
 
 const ACTOR_ID = 'user-12345678';
+const ADMIN_ID = 'admin-12345678';
 const ASSIGNEE_ID = 'member-12345678';
+const VIEWER_ID = 'viewer-12345678';
 const GUEST_ID = 'guest-12345678';
 const WORKSPACE_ID = 'workspace-12345678';
 const PROJECT_ID = 'project-12345678';
 const NOTE_ID = 'note-12345678';
+
+const TARGET_ROLES = Object.freeze({
+  [ADMIN_ID]: 'admin',
+  [ASSIGNEE_ID]: 'member',
+  [VIEWER_ID]: 'viewer',
+  [GUEST_ID]: 'guest',
+});
 
 function repo(role = 'owner', { tasks = [] } = {}) {
   const calls = [];
   return {
     calls,
     async getWorkspaceMembership(_workspaceId, userId) {
-      if (userId === GUEST_ID) return { role: 'guest', status: 'active' };
-      if (userId === ASSIGNEE_ID) return { role: 'member', status: 'active' };
-      return { role, status: 'active' };
+      if (userId === ACTOR_ID) return { role, status: 'active' };
+      const targetRole = TARGET_ROLES[userId];
+      return targetRole ? { role: targetRole, status: 'active' } : null;
     },
     async getProject() { return { id: PROJECT_ID }; },
     async getProjectMembership() { return { role: 'manager' }; },
@@ -25,7 +34,9 @@ function repo(role = 'owner', { tasks = [] } = {}) {
         { id: ACTOR_ID, display_name: 'Actor' },
         { id: ASSIGNEE_ID, display_name: 'Member' },
       ];
-      return projectId ? [...base, { id: GUEST_ID, display_name: 'Guest' }] : base;
+      return projectId
+        ? [...base, { id: VIEWER_ID, display_name: 'Viewer' }, { id: GUEST_ID, display_name: 'Guest' }]
+        : base;
     },
     async listTasksForMember() { return tasks; },
     async createProject(input) { calls.push(['createProject', input]); return input; },
@@ -37,7 +48,7 @@ function repo(role = 'owner', { tasks = [] } = {}) {
       calls.push(['setProjectMembership', input]);
       return { kind: 'ok', membership: input };
     },
-    async removeProjectMembership() { calls.push(['removeProjectMembership']); return { id: 'x' }; },
+    async removeProjectMembership(input) { calls.push(['removeProjectMembership', input]); return { id: 'x' }; },
     async listNotes() { return []; },
     async createNote(input) { calls.push(['createNote', input]); return { ...input, version: 1 }; },
     async updateNote(input) { return { kind: 'ok', note: { ...input, version: input.expectedVersion + 1 } }; },
@@ -49,33 +60,63 @@ function repo(role = 'owner', { tasks = [] } = {}) {
   };
 }
 
-test('owner can create/rename projects and assign Guest project team members', async () => {
+test('owner can manage admin, member, viewer and guest project roles', async () => {
   const r = repo('owner');
   const service = createProjectNotesService(r);
   await service.createProject(ACTOR_ID, WORKSPACE_ID, { name: 'Նոր նախագիծ' });
   await service.renameProject(ACTOR_ID, WORKSPACE_ID, PROJECT_ID, { name: 'Վերանվանված' });
+  await service.setProjectMember(ACTOR_ID, WORKSPACE_ID, PROJECT_ID, ADMIN_ID, { role: 'manager' });
+  await service.setProjectMember(ACTOR_ID, WORKSPACE_ID, PROJECT_ID, ASSIGNEE_ID, { role: 'editor' });
+  await service.setProjectMember(ACTOR_ID, WORKSPACE_ID, PROJECT_ID, VIEWER_ID, { role: 'viewer' });
   await service.setProjectMember(ACTOR_ID, WORKSPACE_ID, PROJECT_ID, GUEST_ID, { role: 'editor' });
-  assert.deepEqual(r.calls.map((call) => call[0]), ['createProject', 'renameProject', 'setProjectMembership']);
+  assert.equal(r.calls.filter(([name]) => name === 'setProjectMembership').length, 4);
 });
 
-test('project roles cannot be assigned to non-Guest workspace members', async () => {
-  const service = createProjectNotesService(repo('owner'));
+test('admin can manage member, viewer and guest but not admin', async () => {
+  const service = createProjectNotesService(repo('admin'));
+  await service.setProjectMember(ACTOR_ID, WORKSPACE_ID, PROJECT_ID, ASSIGNEE_ID, { role: 'manager' });
+  await service.setProjectMember(ACTOR_ID, WORKSPACE_ID, PROJECT_ID, VIEWER_ID, { role: 'editor' });
+  await service.setProjectMember(ACTOR_ID, WORKSPACE_ID, PROJECT_ID, GUEST_ID, { role: 'viewer' });
   await assert.rejects(
-    () => service.setProjectMember(ACTOR_ID, WORKSPACE_ID, PROJECT_ID, ASSIGNEE_ID, { role: 'editor' }),
-    (error) => error.status === 400 && error.code === 'project_role_guest_only',
+    () => service.setProjectMember(ACTOR_ID, WORKSPACE_ID, PROJECT_ID, ADMIN_ID, { role: 'manager' }),
+    (error) => error.status === 403 && error.code === 'project_member_hierarchy_forbidden',
   );
 });
 
-test('assigned Guest cannot lose task access until project tasks are reassigned', async () => {
-  const tasks = [{ id: 'task-1', project_id: PROJECT_ID, assignees: [{ id: GUEST_ID }] }];
-  const service = createProjectNotesService(repo('owner', { tasks }));
-
+test('member can manage viewer and guest but not member or admin', async () => {
+  const service = createProjectNotesService(repo('member'));
+  await service.setProjectMember(ACTOR_ID, WORKSPACE_ID, PROJECT_ID, VIEWER_ID, { role: 'manager' });
+  await service.setProjectMember(ACTOR_ID, WORKSPACE_ID, PROJECT_ID, GUEST_ID, { role: 'editor' });
   await assert.rejects(
-    () => service.setProjectMember(ACTOR_ID, WORKSPACE_ID, PROJECT_ID, GUEST_ID, { role: 'viewer' }),
+    () => service.setProjectMember(ACTOR_ID, WORKSPACE_ID, PROJECT_ID, ASSIGNEE_ID, { role: 'manager' }),
+    (error) => error.status === 403 && error.code === 'project_member_hierarchy_forbidden',
+  );
+  await assert.rejects(
+    () => service.setProjectMember(ACTOR_ID, WORKSPACE_ID, PROJECT_ID, ADMIN_ID, { role: 'manager' }),
+    (error) => error.status === 403 && error.code === 'project_member_hierarchy_forbidden',
+  );
+});
+
+test('viewer cannot manage project team', async () => {
+  const service = createProjectNotesService(repo('viewer'));
+  await assert.rejects(
+    () => service.setProjectMember(ACTOR_ID, WORKSPACE_ID, PROJECT_ID, GUEST_ID, { role: 'manager' }),
+    (error) => error.status === 403,
+  );
+});
+
+test('scoped viewer or guest cannot lose project task access while assigned', async () => {
+  const viewerTasks = [{ id: 'task-1', project_id: PROJECT_ID, assignees: [{ id: VIEWER_ID }] }];
+  const viewerService = createProjectNotesService(repo('member', { tasks: viewerTasks }));
+  await assert.rejects(
+    () => viewerService.setProjectMember(ACTOR_ID, WORKSPACE_ID, PROJECT_ID, VIEWER_ID, { role: 'viewer' }),
     (error) => error.status === 409 && error.code === 'project_member_has_task_assignments',
   );
+
+  const guestTasks = [{ id: 'task-2', project_id: PROJECT_ID, assignees: [{ id: GUEST_ID }] }];
+  const guestService = createProjectNotesService(repo('member', { tasks: guestTasks }));
   await assert.rejects(
-    () => service.removeProjectMember(ACTOR_ID, WORKSPACE_ID, PROJECT_ID, GUEST_ID),
+    () => guestService.removeProjectMember(ACTOR_ID, WORKSPACE_ID, PROJECT_ID, GUEST_ID),
     (error) => error.status === 409 && error.code === 'project_member_has_task_assignments',
   );
 });

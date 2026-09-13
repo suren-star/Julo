@@ -36,6 +36,21 @@ test('member can create required-field task and server owns createdBy', async ()
   const task=await service.createTask(ACTOR,'workspace-123',assignedTask({title:' Test ',projectId:'project-123'}));
   assert.equal(task.title,'Test');
   assert.equal(task.createdBy,ACTOR);
+  assert.equal(task.status,'todo');
+});
+
+test('new task accepts a validated initial status', async () => {
+  const repo=repoFor('member'); const service=createWorkspaceService(repo);
+  const task=await service.createTask(ACTOR,'workspace-123',assignedTask({status:'done'}));
+  assert.equal(task.status,'done');
+});
+
+test('new task rejects an invalid initial status', async () => {
+  const service=createWorkspaceService(repoFor('member'));
+  await assert.rejects(
+    ()=>service.createTask(ACTOR,'workspace-123',assignedTask({status:'later'})),
+    (e)=>e.code==='invalid_status',
+  );
 });
 
 test('empty project selection is normalized to null', async () => {

@@ -5,6 +5,7 @@ import fs from 'node:fs';
 const appSource = fs.readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
 const mainSource = fs.readFileSync(new URL('../src/main.jsx', import.meta.url), 'utf8');
 const gatewaySource = fs.readFileSync(new URL('../src/auth/AuthGateway.jsx', import.meta.url), 'utf8');
+const projectTeamSource = fs.readFileSync(new URL('../src/auth/ProjectTeamDrawer.jsx', import.meta.url), 'utf8');
 
 test('main Board has no legacy local task engine imports', () => {
   assert.doesNotMatch(appSource, /lib\/storage\.js/);
@@ -14,6 +15,27 @@ test('main Board has no legacy local task engine imports', () => {
   assert.match(appSource, /backendApi\.createTask/);
   assert.match(appSource, /backendApi\.updateTask/);
   assert.match(appSource, /backendApi\.deleteTask/);
+});
+
+test('new Board task is created with its initial status in one request', () => {
+  assert.match(appSource, /backendApi\.createTask\([\s\S]*?status: clean\.status,[\s\S]*?primaryAssigneeUserId: clean\.primaryAssigneeUserId/);
+  assert.doesNotMatch(appSource, /if \(clean\.status !== 'todo'\)[\s\S]*?backendApi\.updateTask/);
+});
+
+test('editable task project choices follow task permission boundaries', () => {
+  assert.match(appSource, /projects\.filter\(\(project\) => canTask\(modalTask\?\.id \? 'update' : 'create', project\.id\)\)/);
+  assert.match(appSource, /if \(!canTask\(clean\.id \? 'update' : 'create', clean\.projectId\)\) return false/);
+});
+
+test('task project dropdown can create a project only for project creators', () => {
+  assert.match(appSource, /canCreateProject=\{canProject\('create'\)\}/);
+  assert.match(appSource, /value="__create_project__"/);
+  assert.match(appSource, /nextProjectId = await onCreateProject\(\)/);
+});
+
+test('project role assignment UI is scoped to Guest workspace members', () => {
+  assert.match(projectTeamSource, /member\.role === 'guest'/);
+  assert.match(projectTeamSource, /availableGuests\.map/);
 });
 
 test('all web routes enter through AuthGateway', () => {

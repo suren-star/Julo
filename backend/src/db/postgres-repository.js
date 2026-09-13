@@ -299,12 +299,14 @@ export function createPostgresRepository(pool) {
 
     async createTask(input) {
       return withTransaction(pool, async (client) => {
+        const initialStatus = input.status ?? 'todo';
+        const completedAt = initialStatus === 'done' ? new Date() : null;
         const result = await client.query(
           `INSERT INTO tasks (
              id, workspace_id, project_id, title, description, status,
              execution_type, due_date, priority, assignee_user_id, created_by, tags
            )
-           VALUES ($1,$2,$3,$4,$5,'todo',$6,$7,$8,$9,$10,$11)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
            RETURNING *`,
           [
             input.id,
@@ -312,6 +314,7 @@ export function createPostgresRepository(pool) {
             input.projectId,
             input.title,
             input.description,
+            initialStatus,
             input.executionType,
             input.dueDate,
             input.priority,
@@ -336,9 +339,17 @@ export function createPostgresRepository(pool) {
         }
 
         await client.query(
-          `INSERT INTO task_timers (task_id, workspace_id, state, elapsed_ms)
-           VALUES ($1,$2,'idle',0)`,
-          [input.id, input.workspaceId],
+          `INSERT INTO task_timers (
+             task_id, workspace_id, state, elapsed_ms, stopped_at, stop_reason
+           )
+           VALUES ($1,$2,$3,0,$4,$5)`,
+          [
+            input.id,
+            input.workspaceId,
+            initialStatus === 'done' ? 'stopped' : 'idle',
+            completedAt,
+            initialStatus === 'done' ? 'completed' : null,
+          ],
         );
         await client.query(
           `INSERT INTO audit_events (workspace_id, actor_user_id, action, entity_type, entity_id, metadata)
@@ -349,6 +360,7 @@ export function createPostgresRepository(pool) {
             input.id,
             JSON.stringify({
               projectId: input.projectId,
+              status: initialStatus,
               assigneeUserIds: input.assigneeUserIds ?? [],
               primaryAssigneeUserId: input.primaryAssigneeUserId,
             }),

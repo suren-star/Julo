@@ -187,26 +187,22 @@ function App({ workspace, user }) {
     if (!clean.title || !TASK_EXECUTION_TYPES[clean.executionType] || !clean.dueDate) return false;
     if (!clean.assigneeUserIds?.length || !clean.primaryAssigneeUserId) return false;
     if (guestRequiresProject && !clean.projectId) return false;
+    if (!canTask(clean.id ? 'update' : 'create', clean.projectId)) return false;
 
     const ok = await runMutation(async () => {
       if (!clean.id) {
-        const result = await backendApi.createTask(workspace.id, {
+        await backendApi.createTask(workspace.id, {
           title: clean.title,
           description: clean.description,
           projectId: clean.projectId,
           executionType: clean.executionType,
           dueDate: clean.dueDate,
           priority: clean.priority,
+          status: clean.status,
           tags: clean.tags,
           assigneeUserIds: clean.assigneeUserIds,
           primaryAssigneeUserId: clean.primaryAssigneeUserId,
         });
-        if (clean.status !== 'todo') {
-          await backendApi.updateTask(workspace.id, result.task.id, {
-            expectedVersion: Number(result.task.version || 1),
-            status: clean.status,
-          });
-        }
         return;
       }
 
@@ -248,9 +244,9 @@ function App({ workspace, user }) {
   };
 
   const addProject = async () => {
-    if (!canProject('create')) return;
+    if (!canProject('create')) return '';
     const name = window.prompt('Նոր նախագծի անունը');
-    if (!name?.trim()) return;
+    if (!name?.trim()) return '';
     let createdId = '';
     const ok = await runMutation(async () => {
       const result = await backendApi.createProject(workspace.id, { name: name.trim() });
@@ -260,6 +256,7 @@ function App({ workspace, user }) {
       setActiveProject(createdId);
       setView('board');
     }
+    return ok ? createdId : '';
   };
 
   const renameProject = async (project) => {
@@ -286,6 +283,10 @@ function App({ workspace, user }) {
   const modalTask = editingTaskId
     ? tasks.find((task) => task.id === editingTaskId) || null
     : newTaskDraft;
+  const modalReadOnly = Boolean(modalTask?.id && !canTask('update', modalTask.projectId));
+  const modalProjects = modalReadOnly
+    ? projects
+    : projects.filter((project) => canTask(modalTask?.id ? 'update' : 'create', project.id));
   const headerTitle = view === 'today'
     ? 'Այսօրվա աշխատանքը'
     : view === 'done'
@@ -391,18 +392,20 @@ function App({ workspace, user }) {
         key={modalTask.id || 'new'}
         task={modalTask}
         workspace={workspace}
-        projects={projects}
-        readOnly={modalTask.id ? !canTask('update', modalTask.projectId) : false}
+        projects={modalProjects}
+        readOnly={modalReadOnly}
         canDelete={modalTask.id ? canTask('delete', modalTask.projectId) : false}
         canComment={modalTask.id ? canTask('comment', modalTask.projectId) : false}
         canUseTimer={modalTask.id ? canTask('timer', modalTask.projectId) : false}
         canReopenCompleted={canReopenCompleted}
+        canCreateProject={canProject('create')}
         guestRequiresProject={guestRequiresProject}
         busy={busy}
         onAddComment={addTaskComment}
         onTimerStart={(task) => timerCommand(task, 'start')}
         onTimerPause={(task) => timerCommand(task, 'pause')}
         onTimerStop={(task) => timerCommand(task, 'stop')}
+        onCreateProject={addProject}
         onClose={() => setShowTaskModal(false)}
         onSave={saveTask}
         onDelete={deleteTask}
@@ -431,8 +434,8 @@ function TaskCard({ task, project, onOpen, onDragStart, draggable }) {
 }
 
 function TaskModal({
-  task, workspace, projects, readOnly, canDelete, canComment, canUseTimer, canReopenCompleted,
-  guestRequiresProject, busy, onAddComment, onTimerStart, onTimerPause, onTimerStop, onClose, onSave, onDelete,
+  task, workspace, projects, readOnly, canDelete, canComment, canUseTimer, canReopenCompleted, canCreateProject,
+  guestRequiresProject, busy, onAddComment, onTimerStart, onTimerPause, onTimerStop, onCreateProject, onClose, onSave, onDelete,
 }) {
   const assignment = taskAssigneeDraft(task);
   const [draft, setDraft] = useState({
@@ -500,10 +503,15 @@ function TaskModal({
     if (await onAddComment(task.id, text)) setCommentText('');
   };
 
-  const changeProject = (projectId) => {
+  const changeProject = async (projectId) => {
+    let nextProjectId = projectId;
+    if (projectId === '__create_project__') {
+      nextProjectId = await onCreateProject();
+      if (!nextProjectId) return;
+    }
     setDraft((current) => ({
       ...current,
-      projectId,
+      projectId: nextProjectId,
       assigneeUserIds: [],
       primaryAssigneeUserId: '',
     }));
@@ -515,7 +523,7 @@ function TaskModal({
     <label className="field"><span>Վերնագիր *</span><input autoFocus={!readOnly} disabled={readOnly || busy} required value={draft.title} onChange={(event) => set('title', event.target.value)} placeholder="Ի՞նչ պետք է անել" /></label>
     <label className="field"><span>Նկարագրություն</span><textarea rows="4" disabled={readOnly || busy} value={draft.description} onChange={(event) => set('description', event.target.value)} placeholder="Մանրամասներ, հղումներ կամ նշումներ…" /></label>
     <div className="field-grid">
-      <label className="field"><span>Նախագիծ{guestRequiresProject ? ' *' : ''}</span><select disabled={readOnly || busy} value={draft.projectId} onChange={(event) => changeProject(event.target.value)}>{!guestRequiresProject && <option value="">Առանց նախագծի</option>}{guestRequiresProject && <option value="">Ընտրեք նախագիծ</option>}{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
+      <label className="field"><span>Նախագիծ{guestRequiresProject ? ' *' : ''}</span><select disabled={readOnly || busy} value={draft.projectId} onChange={(event) => changeProject(event.target.value)}>{!guestRequiresProject && <option value="">Առանց նախագծի</option>}{guestRequiresProject && <option value="">Ընտրեք նախագիծ</option>}{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}{canCreateProject && <option value="__create_project__">＋ Ստեղծել նոր նախագիծ</option>}</select></label>
       <label className="field"><span>Կարգավիճակ</span><select disabled={readOnly || busy} value={draft.status} onChange={(event) => set('status', event.target.value)}>{statusOptions.map((status) => <option key={status.id} value={status.id}>{status.title}</option>)}</select></label>
       <label className="field"><span>Կատարման տեսակ *</span><select disabled={readOnly || busy} required value={draft.executionType} onChange={(event) => set('executionType', event.target.value)}>{Object.entries(TASK_EXECUTION_TYPES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
       <label className="field"><span>Առաջնահերթություն</span><select disabled={readOnly || busy} value={draft.priority} onChange={(event) => set('priority', event.target.value)}>{Object.entries(PRIORITIES).map(([id, priority]) => <option key={id} value={id}>{priority.label}</option>)}</select></label>

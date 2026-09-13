@@ -38,14 +38,6 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
-      - name: Generate dependency lock for consolidation
-        working-directory: backend
-        run: |
-          npm install --package-lock-only --ignore-scripts
-          echo '---JULO_PACKAGE_LOCK_BEGIN---'
-          cat package-lock.json
-          echo '---JULO_PACKAGE_LOCK_END---'
-
       - name: Install dependencies
         working-directory: backend
         run: npm ci --ignore-scripts

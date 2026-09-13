@@ -13,6 +13,13 @@ function assertUuidish(value, field) {
   return value;
 }
 
+function normalizeProjectId(value) {
+  if (value == null) return null;
+  if (typeof value !== 'string') throw serviceError(400, 'invalid_project_id', 'project_id is invalid.');
+  const trimmed = value.trim();
+  return trimmed ? assertUuidish(trimmed, 'project_id') : null;
+}
+
 function normalizeAssignees(input) {
   const raw = input?.assigneeUserIds ?? [];
   if (!Array.isArray(raw)) throw serviceError(400, 'invalid_assignees', 'assigneeUserIds must be an array.');
@@ -42,7 +49,7 @@ function validateNewTask(input) {
   if (description.length > 20_000) throw serviceError(400, 'invalid_description', 'Description is too long.');
   const priority = input?.priority ?? 'normal';
   if (!PRIORITIES.has(priority)) throw serviceError(400, 'invalid_priority', 'Priority is invalid.');
-  return { title, description, executionType: input.executionType, dueDate: input.dueDate, priority, projectId: input?.projectId ?? null, ...normalizeAssignees(input) };
+  return { title, description, executionType: input.executionType, dueDate: input.dueDate, priority, projectId: normalizeProjectId(input?.projectId), ...normalizeAssignees(input) };
 }
 
 export function createWorkspaceService(repository) {
@@ -92,7 +99,7 @@ export function createWorkspaceService(repository) {
     async listTaskAssigneeCandidates(userId, workspaceId, projectId = null) {
       const safeWorkspaceId = assertUuidish(workspaceId, 'workspace_id');
       const membership = await getMembership(userId, safeWorkspaceId);
-      const safeProjectId = projectId == null || projectId === '' ? null : assertUuidish(projectId, 'project_id');
+      const safeProjectId = normalizeProjectId(projectId);
       if (membership.role === 'guest') {
         const projectRole = await projectRoleForGuest(userId, safeWorkspaceId, safeProjectId);
         requireProjectPermission({ workspaceRole: membership.role, projectRole, action: ACTIONS.TASK_READ });
@@ -107,7 +114,6 @@ export function createWorkspaceService(repository) {
       const safeWorkspaceId = assertUuidish(workspaceId, 'workspace_id');
       const membership = await getMembership(userId, safeWorkspaceId);
       const task = validateNewTask(input);
-      if (task.projectId !== null) assertUuidish(task.projectId, 'project_id');
 
       if (membership.role === 'guest') {
         const projectRole = await projectRoleForGuest(userId, safeWorkspaceId, task.projectId);

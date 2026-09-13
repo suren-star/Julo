@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createJuloBackend } from './app.js';
 import { runMigrations } from './db/migrations.js';
+import { resetTestWorkspaceTasks } from './testing/reset-test-tasks.js';
 import { seedRequestedTestUsers } from './testing/test-users.js';
 
 function requiredEnv(name) {
@@ -58,6 +59,9 @@ async function main() {
     const result = await seedRequestedTestUsers(backend.repository, process.env);
     console.log(`Test users seeded in workspace ${result.workspaceId || 'Julo Test Workspace'}.`);
   }
+
+  const reset = await resetTestWorkspaceTasks(pool, process.env);
+  if (reset.reset) console.log(`Test workspace tasks reset; deleted ${reset.deletedTaskCount} task(s).`);
 
   await new Promise((resolve, reject) => {
     backend.server.once('error', reject);

@@ -28,8 +28,9 @@ async function request(path, { method = 'GET', body } = {}) {
   return payload;
 }
 
-function normalizeTaskInput(input) {
-  return { ...input, projectId: input?.projectId ? input.projectId : null };
+function normalizeTaskInput(input = {}) {
+  if (!Object.prototype.hasOwnProperty.call(input, 'projectId')) return { ...input };
+  return { ...input, projectId: input.projectId ? input.projectId : null };
 }
 
 export const backendApi = Object.freeze({
@@ -64,7 +65,18 @@ export const backendApi = Object.freeze({
     workspacePath(workspaceId, '/tasks'),
     { method: 'POST', body: normalizeTaskInput(input) },
   ),
-  updateTask: (workspaceId, taskId, input) => request(taskPath(workspaceId, taskId), { method: 'PATCH', body: input }),
+  updateTask: (workspaceId, taskId, input) => request(
+    taskPath(workspaceId, taskId),
+    { method: 'PATCH', body: normalizeTaskInput(input) },
+  ),
+  deleteTask: (workspaceId, taskId, expectedVersion) => request(
+    taskPath(workspaceId, taskId),
+    { method: 'DELETE', body: { expectedVersion } },
+  ),
+  addTaskComment: (workspaceId, taskId, body) => request(
+    taskPath(workspaceId, taskId, '/comments'),
+    { method: 'POST', body: { body } },
+  ),
   timerCommand: (workspaceId, taskId, command) => request(taskPath(workspaceId, taskId, `/timer/${encode(command)}`), { method: 'POST', body: {} }),
 
   notes: (workspaceId) => request(workspacePath(workspaceId, '/notes')),

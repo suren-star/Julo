@@ -6,11 +6,15 @@ This file defines the single supported development sequence for the backend-enab
 
 1. GitHub Pages serves the root application or the physical `/login/index.html` direct-route shell.
 2. Both entries load the same `src/main.jsx` application code.
-3. `/login` mounts `AuthGateway`; other routes mount the current local-first `App` directly.
-4. `AuthGateway` restores the server session, resolves the first accessible workspace, and then renders the shared application plus server-backed task, note, and project-team surfaces.
-5. All server calls go through `src/lib/api-client.js` with `credentials: include`.
+3. Every route enters through `AuthGateway`; there is no unauthenticated/local-first Board path.
+4. `AuthGateway` restores the server session, resolves the first accessible workspace, and renders `App` with the authenticated workspace and user.
+5. `App` is the canonical Board UI. Projects and tasks are loaded from the backend API and PostgreSQL.
+6. Notes and Owner/Admin project-team management are auxiliary drawers in the same authenticated shell.
+7. All server calls go through `src/lib/api-client.js` with `credentials: include`.
 
 `login/index.html` is not a second application. It exists only because GitHub Pages needs a physical direct-route entry for `/Julo/login` and refreshes on that path.
+
+The browser may retain the visual theme preference in localStorage. Tasks, projects, roles, comments, timers and assignments must never use browser storage as an authoritative data source.
 
 ## Backend flow
 
@@ -21,26 +25,48 @@ This file defines the single supported development sequence for the backend-enab
 5. PostgreSQL repositories own persistence and transactions. Shared transaction behavior lives in `db/transaction.js`.
 6. Database constraints remain the final consistency boundary.
 
+## Canonical Board task flow
+
+The Board reads server tasks and projects. All mutations return to the same server model:
+
+- create task -> `POST /api/workspaces/:workspaceId/tasks`;
+- edit metadata, status, project, tags or assignments -> versioned task `PATCH`;
+- drag/drop status -> the same versioned task `PATCH`;
+- add comment -> task comments API;
+- start/pause/stop timer -> task timer command API;
+- delete task -> versioned task `DELETE`;
+- create/rename/archive project -> project APIs.
+
+The former local task storage, permission and timer engines are removed. Do not reintroduce a second Board task state machine.
+
 ## Task invariants
 
 Every server-created task, including a task created from a Note, follows the same rules:
 
-- `created_by` comes from the authenticated session and is immutable.
-- A task has one or more selected assignees.
-- Exactly one selected assignee is primary.
-- Assignees must be eligible in the workspace/project scope.
-- Task updates use optimistic `expectedVersion` checks.
-- Status transitions are validated server-side.
-- At most one timer is running in a workspace; starting another pauses the previous timer.
+- `created_by` comes from the authenticated session and is immutable;
+- a task has one or more selected assignees;
+- exactly one selected assignee is primary;
+- assignees must be eligible in the workspace/project scope;
+- project changes revalidate the existing assignees in the destination project;
+- task updates and deletion use optimistic `expectedVersion` checks;
+- status transitions are validated server-side;
+- completed tasks can be reopened only by Owner/Admin;
+- comments are permission checked server-side;
+- at most one timer is running in a workspace; starting another pauses the previous timer;
+- server task list responses include creator, assignees, comments and timer state for the Board.
 
-The web client mirrors these rules only for user experience. The backend remains authoritative.
+The web client mirrors authorization only to hide or disable controls. The backend remains authoritative.
+
+## Role boundary
+
+Workspace roles are `owner`, `admin`, `member`, `viewer`, `guest`. Guest access is further scoped by project role `manager`, `editor` or `viewer`.
+
+The Board must use the server-returned workspace/project roles and never derive elevated permissions from client-owned data.
 
 ## Test environment
 
 The five requested development identities are seeded only when both test-seed environment guards allow it. Task cleanup is not part of runtime startup and must not be reintroduced as an environment-driven boot hook.
 
-## Transitional boundary
+## Development rule
 
-The main legacy board is still local-first and uses `storage.js`, `permissions.js`, and `task-timer.js`. Those modules are retained intentionally until the board is migrated to the server task API. They must not be treated as the source of truth for backend authorization.
-
-When that migration is implemented, remove the local task persistence/permission path in the same change rather than maintaining two permanent task engines.
+When adding a task feature, extend the existing server Task model, API client and Board UI in the same flow. Do not add a parallel localStorage task implementation or a second task drawer.

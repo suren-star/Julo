@@ -8,6 +8,7 @@ import {
   dateOnly,
   normalizeProjectId,
   normalizeTaskAssignees,
+  normalizeTaskTags,
   serviceError,
 } from '../domain/service-validation.js';
 import { createAccessContext } from './access-context.js';
@@ -22,6 +23,7 @@ function validateNewTask(input) {
     dueDate: dateOnly(input?.dueDate, 'due_date'),
     priority: assertTaskPriority(input?.priority ?? 'normal'),
     projectId: normalizeProjectId(input?.projectId),
+    tags: normalizeTaskTags(input?.tags ?? []),
     ...normalizeTaskAssignees(input),
   };
 }
@@ -107,6 +109,7 @@ export function createWorkspaceService(repository) {
         executionType: task.executionType,
         dueDate: task.dueDate,
         priority: task.priority,
+        tags: task.tags,
         createdBy: userId,
         assigneeUserIds: task.assigneeUserIds,
         primaryAssigneeUserId: task.primaryAssigneeUserId,

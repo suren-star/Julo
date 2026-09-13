@@ -1,30 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  emptyWorkspace,
-  loadWorkspace,
-  parseWorkspaceBackup,
-  saveWorkspace,
-  serializeWorkspace,
-} from './lib/storage.js';
-import {
-  PROJECT_ROLES,
-  WORKSPACE_ROLES,
-  canForMember,
-  canManageMemberRole,
-  canReopenCompletedTask,
-  visibleProjectsForMember,
-} from './lib/permissions.js';
-import { TASK_EXECUTION_TYPES } from './lib/task-types.js';
+import { useEffect, useMemo, useState } from 'react';
+import { TaskAssigneeFields, assigneeText, primaryAssigneeText } from './auth/TaskAssigneeFields.jsx';
+import { backendApi } from './lib/api-client.js';
 import {
   TIMER_STATES,
-  emptyTaskTimer,
+  WORKSPACE_ROLE_LABELS,
+  canProjectAction,
+  canReopenCompletedTask,
+  canTaskAction,
   formatElapsedTime,
   getTimerElapsedMs,
-  pauseTaskTimer,
-  startExclusiveTimer,
-  stopTaskTimer,
-  transitionTaskStatus,
-} from './lib/task-timer.js';
+  normalizeServerTask,
+  taskAssigneeDraft,
+} from './lib/server-board.js';
+import {
+  TASK_EXECUTION_TYPES,
+  TASK_PRIORITY_LABELS,
+} from './lib/task-types.js';
 
 const STATUSES = [
   { id: 'todo', title: 'Առաջադրանք', icon: '○' },
@@ -32,466 +23,359 @@ const STATUSES = [
   { id: 'done', title: 'Ավարտված', icon: '●' },
 ];
 const PRIORITIES = {
-  low: { label: 'Ցածր', icon: '↓' },
-  normal: { label: 'Սովորական', icon: '–' },
-  high: { label: 'Բարձր', icon: '↑' },
-  urgent: { label: 'Շտապ', icon: '!' },
+  low: { label: TASK_PRIORITY_LABELS.low, icon: '↓' },
+  normal: { label: TASK_PRIORITY_LABELS.normal, icon: '–' },
+  high: { label: TASK_PRIORITY_LABELS.high, icon: '↑' },
 };
-const uid = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 const todayKey = () => new Date().toISOString().slice(0, 10);
 
-function App() {
-  const [workspace, setWorkspace] = useState(emptyWorkspace());
+function App({ workspace, user }) {
+  const [tasks, setTasks] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [ready, setReady] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
   const [view, setView] = useState('board');
   const [activeProject, setActiveProject] = useState('all');
   const [query, setQuery] = useState('');
   const [executionTypeFilter, setExecutionTypeFilter] = useState('all');
-  const [editingTask, setEditingTask] = useState(null);
+  const [editingTaskId, setEditingTaskId] = useState(null);
+  const [newTaskDraft, setNewTaskDraft] = useState(null);
   const [showTaskModal, setShowTaskModal] = useState(false);
-  const importInputRef = useRef(null);
+  const [theme, setTheme] = useState(() => window.localStorage.getItem('julo_theme') || 'light');
 
-  useEffect(() => {
-    loadWorkspace().then((data) => {
-      setWorkspace(data);
-      document.documentElement.dataset.theme = data.settings?.theme || 'light';
+  const loadBoard = async () => {
+    if (!workspace?.id) return [];
+    try {
+      const [taskResult, projectResult] = await Promise.all([
+        backendApi.tasks(workspace.id),
+        backendApi.projects(workspace.id),
+      ]);
+      const nextTasks = (taskResult.tasks || []).map(normalizeServerTask);
+      setTasks(nextTasks);
+      setProjects(projectResult.projects || []);
+      setError('');
       setReady(true);
-    });
-  }, []);
+      return nextTasks;
+    } catch (requestError) {
+      setError(requestError.message || 'Չհաջողվեց բեռնել աշխատանքային տախտակը։');
+      setReady(true);
+      return [];
+    }
+  };
 
   useEffect(() => {
-    if (ready) saveWorkspace(workspace);
-  }, [workspace, ready]);
-
-  const currentMember = useMemo(
-    () => workspace.members.find((member) => member.id === workspace.currentUserId) || workspace.members[0],
-    [workspace.members, workspace.currentUserId],
-  );
-
-  const visibleProjects = useMemo(
-    () => visibleProjectsForMember(workspace, currentMember),
-    [workspace.projects, currentMember],
-  );
-  const visibleProjectIds = useMemo(() => new Set(visibleProjects.map((project) => project.id)), [visibleProjects]);
+    loadBoard();
+  }, [workspace?.id]);
 
   useEffect(() => {
-    if (activeProject !== 'all' && !visibleProjectIds.has(activeProject)) setActiveProject('all');
-  }, [activeProject, visibleProjectIds]);
+    document.documentElement.dataset.theme = theme;
+    window.localStorage.setItem('julo_theme', theme);
+  }, [theme]);
 
-  const tasks = useMemo(() => {
+  const projectRoleMap = useMemo(
+    () => new Map(projects.map((project) => [project.id, project.project_role || project.projectRole || null])),
+    [projects],
+  );
+  const projectNameMap = useMemo(
+    () => new Map(projects.map((project) => [project.id, project.name])),
+    [projects],
+  );
+
+  const projectRole = (projectId) => projectRoleMap.get(projectId) || null;
+  const canTask = (action, projectId = '') => canTaskAction(workspace?.role, projectRole(projectId), action);
+  const canProject = (action, projectId = '') => canProjectAction(workspace?.role, projectRole(projectId), action);
+  const canReopenCompleted = canReopenCompletedTask(workspace?.role);
+  const guestRequiresProject = workspace?.role === 'guest';
+
+  useEffect(() => {
+    if (activeProject !== 'all' && !projectNameMap.has(activeProject)) setActiveProject('all');
+  }, [activeProject, projectNameMap]);
+
+  const visibleTasks = useMemo(() => {
     const q = query.trim().toLocaleLowerCase('hy-AM');
-    return workspace.tasks.filter((task) => {
-      if (currentMember?.role === 'guest' && !visibleProjectIds.has(task.projectId)) return false;
+    return tasks.filter((task) => {
       if (activeProject !== 'all' && task.projectId !== activeProject) return false;
       if (executionTypeFilter !== 'all' && task.executionType !== executionTypeFilter) return false;
       if (view === 'today' && task.dueDate !== todayKey()) return false;
       if (view === 'done' && task.status !== 'done') return false;
-      if (view !== 'done' && view !== 'board' && view !== 'today' && view !== 'team' && task.status === 'done') return false;
       if (view === 'all' && task.status === 'done') return false;
       if (!q) return true;
       return [
         task.title,
         task.description,
         TASK_EXECUTION_TYPES[task.executionType] || '',
+        task.creatorName,
         ...(task.tags || []),
+        ...(task.assignees || []).map((person) => person.displayName || person.username || ''),
         ...(task.comments || []).map((comment) => comment.text),
       ].join(' ').toLocaleLowerCase('hy-AM').includes(q);
     });
-  }, [workspace.tasks, currentMember, visibleProjectIds, activeProject, executionTypeFilter, view, query]);
+  }, [tasks, activeProject, executionTypeFilter, view, query]);
 
-  const projectName = (id) => workspace.projects.find((p) => p.id === id)?.name || 'Առանց նախագծի';
-  const projectTaskCount = (id) => workspace.tasks.filter((task) => task.projectId === id && task.status !== 'done').length;
-  const canManageMembers = canForMember(currentMember, 'members.manage');
-  const canExport = canForMember(currentMember, 'workspace.export');
-  const canImport = canForMember(currentMember, 'workspace.import');
-  const canCreateProject = canForMember(currentMember, 'projects.create');
-  const canCreateTask = (projectId = '') => canForMember(currentMember, 'tasks.create', projectId);
-  const canReopenCompleted = canReopenCompletedTask(currentMember);
-  const canUseTaskTimer = (projectId = '') => canForMember(currentMember, 'tasks.timer', projectId);
+  const projectName = (id) => projectNameMap.get(id) || 'Առանց նախագծի';
+  const projectTaskCount = (id) => tasks.filter((task) => task.projectId === id && task.status !== 'done').length;
 
-  const changeTaskStatus = (id, nextStatus) => {
-    const task = workspace.tasks.find((item) => item.id === id);
-    if (!task || !canForMember(currentMember, 'tasks.update', task.projectId)) return false;
-    const nowMs = Date.now();
-    const transition = transitionTaskStatus(task, nextStatus, { canReopenCompleted, nowMs });
-    if (transition.blocked) {
-      window.alert('Ավարտված առաջադրանքը «Ընթացքում» կարող են վերադարձնել միայն Սեփականատերը կամ Ադմինիստրատորը։');
+  const runMutation = async (action) => {
+    setBusy(true);
+    setError('');
+    try {
+      await action();
+      await loadBoard();
+      return true;
+    } catch (requestError) {
+      setError(requestError.message || 'Գործողությունը չհաջողվեց։');
+      if (requestError.status === 409) await loadBoard();
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const changeTaskStatus = async (task, nextStatus) => {
+    if (!task || !canTask('update', task.projectId)) return false;
+    if (task.status === 'done' && nextStatus !== 'done' && !canReopenCompleted) {
+      window.alert('Ավարտված առաջադրանքը կարող են վերաբացել միայն Սեփականատերը կամ Ադմինիստրատորը։');
       return false;
     }
-    if (!transition.changed) return true;
-    const updatedAt = new Date(nowMs).toISOString();
-    setWorkspace((s) => ({ ...s, tasks: s.tasks.map((item) => item.id === id ? { ...transition.task, updatedAt } : item) }));
-    return true;
-  };
-
-  const patchTask = (id, patch) => {
-    const task = workspace.tasks.find((item) => item.id === id);
-    if (!task || !canForMember(currentMember, 'tasks.update', task.projectId)) return;
-    if (patch.status && patch.status !== task.status) {
-      changeTaskStatus(id, patch.status);
-      return;
-    }
-    setWorkspace((s) => ({ ...s, tasks: s.tasks.map((t) => t.id === id ? { ...t, ...patch, updatedAt: new Date().toISOString() } : t) }));
-  };
-
-  const startTimerForTask = (id) => {
-    const task = workspace.tasks.find((item) => item.id === id);
-    if (!task || task.status === 'done' || !canUseTaskTimer(task.projectId)) return;
-    if (task.timer?.state === TIMER_STATES.STOPPED) {
-      window.alert('Այս timer-ը Stop է արվել և այլևս չի կարող վերագործարկվել։');
-      return;
-    }
-    const nowMs = Date.now();
-    const updatedAt = new Date(nowMs).toISOString();
-    setWorkspace((s) => {
-      const nextTasks = startExclusiveTimer(s.tasks, id, nowMs);
-      return { ...s, tasks: nextTasks.map((item, index) => item === s.tasks[index] ? item : { ...item, updatedAt }) };
-    });
-  };
-
-  const pauseTimerForTask = (id) => {
-    const task = workspace.tasks.find((item) => item.id === id);
-    if (!task || !canUseTaskTimer(task.projectId) || task.timer?.state !== TIMER_STATES.RUNNING) return;
-    const nowMs = Date.now();
-    setWorkspace((s) => ({ ...s, tasks: s.tasks.map((item) => item.id === id ? { ...item, timer: pauseTaskTimer(item.timer, nowMs), updatedAt: new Date(nowMs).toISOString() } : item) }));
-  };
-
-  const stopTimerForTask = (id) => {
-    const task = workspace.tasks.find((item) => item.id === id);
-    if (!task || !canUseTaskTimer(task.projectId)) return;
-    if (![TIMER_STATES.RUNNING, TIMER_STATES.PAUSED].includes(task.timer?.state)) return;
-    if (!window.confirm('Վստա՞հ եք, որ սեղմում եք Stop։ Հաստատելուց հետո timer-ը այլևս չեք կարող վերագործարկել։')) return;
-    const nowMs = Date.now();
-    setWorkspace((s) => ({ ...s, tasks: s.tasks.map((item) => item.id === id ? { ...item, timer: stopTaskTimer(item.timer, nowMs, 'manual'), updatedAt: new Date(nowMs).toISOString() } : item) }));
-  };
-
-  const deleteTask = (id) => {
-    const task = workspace.tasks.find((item) => item.id === id);
-    if (!task || !canForMember(currentMember, 'tasks.delete', task.projectId)) return;
-    setWorkspace((s) => ({ ...s, tasks: s.tasks.filter((t) => t.id !== id) }));
-  };
-
-  const addTaskComment = (taskId, text) => {
-    const cleanText = text.trim();
-    const task = workspace.tasks.find((item) => item.id === taskId);
-    if (!cleanText || !task || !canForMember(currentMember, 'tasks.comment', task.projectId)) return false;
-
-    const comment = {
-      id: uid('comment'),
-      authorId: currentMember?.id || '',
-      authorName: currentMember?.name || 'Օգտատեր',
-      text: cleanText,
-      createdAt: new Date().toISOString(),
-    };
-
-    setWorkspace((s) => ({
-      ...s,
-      tasks: s.tasks.map((item) => item.id === taskId
-        ? { ...item, comments: [...(item.comments || []), comment], updatedAt: new Date().toISOString() }
-        : item),
+    return runMutation(() => backendApi.updateTask(workspace.id, task.id, {
+      expectedVersion: task.version,
+      status: nextStatus,
     }));
-    setEditingTask((current) => current?.id === taskId
-      ? { ...current, comments: [...(current.comments || []), comment], updatedAt: new Date().toISOString() }
-      : current);
-    return true;
   };
 
   const openNewTask = (status = 'todo') => {
     const projectId = activeProject === 'all' ? '' : activeProject;
-    if (!canCreateTask(projectId)) {
-      window.alert('Ձեր դերը թույլ չի տալիս այստեղ առաջադրանք ստեղծել։');
+    if (!canTask('create', projectId)) {
+      window.alert(guestRequiresProject
+        ? 'Guest-ը առաջադրանք կարող է ստեղծել միայն իրեն հասանելի նախագծում։'
+        : 'Ձեր դերը թույլ չի տալիս այստեղ առաջադրանք ստեղծել։');
       return;
     }
-    setEditingTask({
+    setEditingTaskId(null);
+    setNewTaskDraft({
       id: null,
       title: '',
       description: '',
       status,
       projectId,
       priority: 'normal',
-      executionType: '',
-      dueDate: '',
+      executionType: 'execute',
+      dueDate: todayKey(),
       tags: [],
       comments: [],
-      timer: emptyTaskTimer(),
+      timer: { state: TIMER_STATES.IDLE, elapsedMs: 0 },
+      assignees: [],
+      assigneeUserIds: [],
+      primaryAssigneeUserId: '',
     });
     setShowTaskModal(true);
   };
 
-  const saveTask = (task) => {
-    const clean = { ...task, title: task.title.trim(), tags: Array.isArray(task.tags) ? task.tags.filter(Boolean) : [] };
-    if (!clean.title) { window.alert('Լրացրեք առաջադրանքի վերնագիրը։'); return; }
-    if (!TASK_EXECUTION_TYPES[clean.executionType]) { window.alert('Ընտրեք առաջադրանքի կատարման տեսակը։'); return; }
-    if (!clean.dueDate) { window.alert('Նշեք առաջադրանքի կատարման ժամկետը։'); return; }
-    const existing = clean.id ? workspace.tasks.find((item) => item.id === clean.id) : null;
-    if (existing && !canForMember(currentMember, 'tasks.update', existing.projectId)) return;
-    if (!existing && !canCreateTask(clean.projectId)) return;
-    if (existing && clean.projectId !== existing.projectId && !canForMember(currentMember, 'tasks.update', clean.projectId)) return;
-    if (existing && existing.status === 'done' && clean.status !== 'done' && !(canReopenCompleted && clean.status === 'doing')) {
-      window.alert('Ավարտված առաջադրանքը «Ընթացքում» կարող են վերադարձնել միայն Սեփականատերը կամ Ադմինիստրատորը։');
-      return;
-    }
-    const nowMs = Date.now();
-    const updatedAt = new Date(nowMs).toISOString();
-    const { comments: ignoredComments, timer: ignoredTimer, ...editable } = clean;
-    setWorkspace((s) => clean.id ? {
-      ...s,
-      tasks: s.tasks.map((current) => {
-        if (current.id !== clean.id) return current;
-        const transition = transitionTaskStatus(current, clean.status, { canReopenCompleted, nowMs });
-        if (transition.blocked) return current;
-        return { ...transition.task, ...editable, status: transition.task.status, timer: transition.task.timer || current.timer || emptyTaskTimer(), comments: current.comments || [], updatedAt };
-      }),
-    } : {
-      ...s,
-      tasks: [...s.tasks, { ...editable, comments: [], timer: clean.status === 'done' ? stopTaskTimer(emptyTaskTimer(), nowMs, 'completed') : emptyTaskTimer(), id: uid('task'), createdAt: updatedAt, updatedAt }],
-    });
-    setShowTaskModal(false);
+  const openTask = (task) => {
+    setNewTaskDraft(null);
+    setEditingTaskId(task.id);
+    setShowTaskModal(true);
   };
 
-  const addProject = () => {
-    if (!canCreateProject) return;
+  const saveTask = async (draft) => {
+    const clean = {
+      ...draft,
+      title: draft.title.trim(),
+      tags: Array.isArray(draft.tags) ? draft.tags.map((tag) => tag.trim()).filter(Boolean) : [],
+    };
+    if (!clean.title || !TASK_EXECUTION_TYPES[clean.executionType] || !clean.dueDate) return false;
+    if (!clean.assigneeUserIds?.length || !clean.primaryAssigneeUserId) return false;
+    if (guestRequiresProject && !clean.projectId) return false;
+
+    const ok = await runMutation(async () => {
+      if (!clean.id) {
+        const result = await backendApi.createTask(workspace.id, {
+          title: clean.title,
+          description: clean.description,
+          projectId: clean.projectId,
+          executionType: clean.executionType,
+          dueDate: clean.dueDate,
+          priority: clean.priority,
+          tags: clean.tags,
+          assigneeUserIds: clean.assigneeUserIds,
+          primaryAssigneeUserId: clean.primaryAssigneeUserId,
+        });
+        if (clean.status !== 'todo') {
+          await backendApi.updateTask(workspace.id, result.task.id, {
+            expectedVersion: Number(result.task.version || 1),
+            status: clean.status,
+          });
+        }
+        return;
+      }
+
+      await backendApi.updateTask(workspace.id, clean.id, {
+        expectedVersion: clean.version,
+        title: clean.title,
+        description: clean.description,
+        projectId: clean.projectId,
+        executionType: clean.executionType,
+        dueDate: clean.dueDate,
+        priority: clean.priority,
+        status: clean.status,
+        tags: clean.tags,
+        assigneeUserIds: clean.assigneeUserIds,
+        primaryAssigneeUserId: clean.primaryAssigneeUserId,
+      });
+    });
+    if (ok) setShowTaskModal(false);
+    return ok;
+  };
+
+  const deleteTask = async (task) => {
+    if (!task || !canTask('delete', task.projectId)) return;
+    if (!window.confirm(`Ջնջե՞լ «${task.title}» առաջադրանքը։`)) return;
+    const ok = await runMutation(() => backendApi.deleteTask(workspace.id, task.id, task.version));
+    if (ok) setShowTaskModal(false);
+  };
+
+  const addTaskComment = async (taskId, text) => {
+    const task = tasks.find((item) => item.id === taskId);
+    if (!task || !canTask('comment', task.projectId) || !text.trim()) return false;
+    return runMutation(() => backendApi.addTaskComment(workspace.id, taskId, text.trim()));
+  };
+
+  const timerCommand = async (task, command) => {
+    if (!task || !canTask('timer', task.projectId) || task.status === 'done') return false;
+    if (command === 'stop' && !window.confirm('Վստա՞հ եք, որ սեղմում եք Stop։ Հաստատելուց հետո timer-ը այլևս չեք կարող վերագործարկել։')) return false;
+    return runMutation(() => backendApi.timerCommand(workspace.id, task.id, command));
+  };
+
+  const addProject = async () => {
+    if (!canProject('create')) return;
     const name = window.prompt('Նոր նախագծի անունը');
     if (!name?.trim()) return;
-    const project = { id: uid('project'), name: name.trim(), createdAt: new Date().toISOString() };
-    setWorkspace((s) => ({ ...s, projects: [...s.projects, project] }));
-    setActiveProject(project.id);
-    setView('board');
+    let createdId = '';
+    const ok = await runMutation(async () => {
+      const result = await backendApi.createProject(workspace.id, { name: name.trim() });
+      createdId = result.project?.id || '';
+    });
+    if (ok && createdId) {
+      setActiveProject(createdId);
+      setView('board');
+    }
   };
 
-  const renameProject = (project) => {
-    if (!canForMember(currentMember, 'projects.update', project.id)) return;
+  const renameProject = async (project) => {
+    if (!canProject('update', project.id)) return;
     const name = window.prompt('Նախագծի նոր անունը', project.name);
     if (!name?.trim() || name.trim() === project.name) return;
-    setWorkspace((s) => ({
-      ...s,
-      projects: s.projects.map((item) => item.id === project.id ? { ...item, name: name.trim() } : item),
-    }));
+    await runMutation(() => backendApi.renameProject(workspace.id, project.id, { name: name.trim() }));
   };
 
-  const removeProject = (project) => {
-    if (!canForMember(currentMember, 'projects.delete', project.id)) return;
-    const count = workspace.tasks.filter((task) => task.projectId === project.id).length;
+  const removeProject = async (project) => {
+    if (!canProject('delete', project.id)) return;
+    const count = tasks.filter((task) => task.projectId === project.id).length;
     const message = count
-      ? `Ջնջե՞լ «${project.name}» նախագիծը։ ${count} առաջադրանք չի ջնջվի և կտեղափոխվի «Առանց նախագծի»։`
-      : `Ջնջե՞լ «${project.name}» նախագիծը։`;
+      ? `Արխիվացնե՞լ «${project.name}» նախագիծը։ ${count} առաջադրանք կտեղափոխվի «Առանց նախագծի»։`
+      : `Արխիվացնե՞լ «${project.name}» նախագիծը։`;
     if (!window.confirm(message)) return;
-    setWorkspace((s) => ({
-      ...s,
-      projects: s.projects.filter((item) => item.id !== project.id),
-      tasks: s.tasks.map((task) => task.projectId === project.id ? { ...task, projectId: '', updatedAt: new Date().toISOString() } : task),
-      members: s.members.map((member) => {
-        if (!member.projectRoles?.[project.id]) return member;
-        const projectRoles = { ...member.projectRoles };
-        delete projectRoles[project.id];
-        return { ...member, projectRoles };
-      }),
-    }));
-    if (activeProject === project.id) {
+    const ok = await runMutation(() => backendApi.deleteProject(workspace.id, project.id));
+    if (ok && activeProject === project.id) {
       setActiveProject('all');
       setView('board');
     }
   };
 
-  const addMember = () => {
-    if (!canManageMembers) return;
-    const name = window.prompt('Անդամի անունը');
-    if (!name?.trim()) return;
-    const email = window.prompt('Էլ․ փոստը (կարող եք թողնել դատարկ)') || '';
-    const member = {
-      id: uid('member'),
-      name: name.trim(),
-      email: email.trim(),
-      role: 'member',
-      status: 'active',
-      projectRoles: {},
-      createdAt: new Date().toISOString(),
-    };
-    setWorkspace((s) => ({ ...s, members: [...s.members, member] }));
-  };
+  const modalTask = editingTaskId
+    ? tasks.find((task) => task.id === editingTaskId) || null
+    : newTaskDraft;
+  const headerTitle = view === 'today'
+    ? 'Այսօրվա աշխատանքը'
+    : view === 'done'
+      ? 'Ավարտված առաջադրանքներ'
+      : view === 'all'
+        ? 'Բոլոր առաջադրանքները'
+        : activeProject === 'all' ? 'Աշխատանքային տախտակ' : projectName(activeProject);
 
-  const changeMemberRole = (memberId, nextRole) => {
-    if (!WORKSPACE_ROLES[nextRole]) return;
-    const target = workspace.members.find((member) => member.id === memberId);
-    if (!target || memberId === workspace.currentUserId) return;
-    if (!canManageMemberRole(currentMember?.role, target.role, nextRole)) return;
-    setWorkspace((s) => ({
-      ...s,
-      members: s.members.map((member) => member.id === memberId ? { ...member, role: nextRole, projectRoles: nextRole === 'guest' ? member.projectRoles : {} } : member),
-    }));
-  };
-
-  const removeMember = (memberId) => {
-    if (!canManageMembers || memberId === workspace.currentUserId) return;
-    const target = workspace.members.find((member) => member.id === memberId);
-    if (!target || target.role === 'owner') return;
-    if (!window.confirm(`Հեռացնե՞լ «${target.name}» անդամին աշխատանքային տարածքից։`)) return;
-    setWorkspace((s) => ({ ...s, members: s.members.filter((member) => member.id !== memberId) }));
-  };
-
-  const setGuestProjectRole = (memberId, projectId, projectRole) => {
-    if (!canManageMembers) return;
-    setWorkspace((s) => ({
-      ...s,
-      members: s.members.map((member) => {
-        if (member.id !== memberId || member.role !== 'guest') return member;
-        const projectRoles = { ...(member.projectRoles || {}) };
-        if (projectRole && PROJECT_ROLES[projectRole]) projectRoles[projectId] = projectRole;
-        else delete projectRoles[projectId];
-        return { ...member, projectRoles };
-      }),
-    }));
-  };
-
-  const exportBackup = () => {
-    if (!canExport) return;
-    const blob = new Blob([serializeWorkspace(workspace)], { type: 'application/json;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `julo-backup-${todayKey()}.json`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-  };
-
-  const importBackup = async (event) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file || !canImport) return;
-    try {
-      const restored = parseWorkspaceBackup(await file.text());
-      if (!window.confirm('Ներմուծումը կփոխարինի այս դիտարկիչում գտնվող Julo տվյալները։ Շարունակե՞լ։')) return;
-      setWorkspace(restored);
-      setActiveProject('all');
-      setView('board');
-      setQuery('');
-      setExecutionTypeFilter('all');
-      document.documentElement.dataset.theme = restored.settings?.theme || 'light';
-      window.alert('Julo-ի պահուստային պատճենը հաջողությամբ ներմուծվեց։');
-    } catch (error) {
-      window.alert(error?.message || 'Չհաջողվեց ներմուծել պահուստային պատճենը։');
-    }
-  };
-
-  const toggleTheme = () => {
-    const theme = workspace.settings?.theme === 'dark' ? 'light' : 'dark';
-    document.documentElement.dataset.theme = theme;
-    setWorkspace((s) => ({ ...s, settings: { ...s.settings, theme } }));
-  };
-
-  const modalTask = editingTask?.id
-    ? workspace.tasks.find((task) => task.id === editingTask.id) || editingTask
-    : editingTask;
-
-  const headerTitle = view === 'team'
-    ? 'Թիմ և դերեր'
-    : view === 'today'
-      ? 'Այսօրվա աշխատանքը'
-      : view === 'done'
-        ? 'Ավարտված առաջադրանքներ'
-        : view === 'all'
-          ? 'Բոլոր առաջադրանքները'
-          : activeProject === 'all' ? 'Աշխատանքային տախտակ' : projectName(activeProject);
+  if (!ready) return <div className="app-shell"><main className="main"><div className="empty-state"><h2>Տախտակը բեռնվում է…</h2></div></main></div>;
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand"><div className="brand-mark">J</div><div><strong>Julo</strong><span>աշխատանքային տարածք</span></div></div>
-        <button className="primary full" onClick={() => openNewTask()} disabled={!canCreateTask(activeProject === 'all' ? '' : activeProject)}>＋ Նոր առաջադրանք</button>
+        <button className="primary full" onClick={() => openNewTask()} disabled={busy || !canTask('create', activeProject === 'all' ? '' : activeProject)}>＋ Նոր առաջադրանք</button>
         <nav className="nav-list">
           <Nav active={view === 'board'} onClick={() => setView('board')} icon="▦">Տախտակ</Nav>
           <Nav active={view === 'today'} onClick={() => setView('today')} icon="◷">Այսօր</Nav>
           <Nav active={view === 'all'} onClick={() => setView('all')} icon="☷">Բոլոր առաջադրանքները</Nav>
           <Nav active={view === 'done'} onClick={() => setView('done')} icon="✓">Ավարտված</Nav>
-          <Nav active={view === 'team'} onClick={() => setView('team')} icon="♙">Թիմ և դերեր</Nav>
         </nav>
-        <div className="section-title"><span>Նախագծեր</span>{canCreateProject && <button onClick={addProject} title="Ավելացնել նախագիծ">＋</button>}</div>
+        <div className="section-title"><span>Նախագծեր</span>{canProject('create') && <button disabled={busy} onClick={addProject} title="Ավելացնել նախագիծ">＋</button>}</div>
         <div className="project-list">
           <button className={activeProject === 'all' ? 'project active' : 'project'} onClick={() => setActiveProject('all')}><span className="dot neutral" />Բոլորը</button>
-          {visibleProjects.map((project) => (
+          {projects.map((project) => (
             <div className="project-row" key={project.id}>
               <button className={activeProject === project.id ? 'project active' : 'project'} onClick={() => { setActiveProject(project.id); setView('board'); }}>
                 <span className="dot" />
                 <span className="project-name">{project.name}</span>
                 <span className="project-count">{projectTaskCount(project.id)}</span>
               </button>
-              {(canForMember(currentMember, 'projects.update', project.id) || canForMember(currentMember, 'projects.delete', project.id)) && (
+              {(canProject('update', project.id) || canProject('delete', project.id)) && (
                 <div className="project-actions">
-                  {canForMember(currentMember, 'projects.update', project.id) && <button onClick={() => renameProject(project)} title="Վերանվանել նախագիծ">✎</button>}
-                  {canForMember(currentMember, 'projects.delete', project.id) && <button onClick={() => removeProject(project)} title="Ջնջել նախագիծ">×</button>}
+                  {canProject('update', project.id) && <button disabled={busy} onClick={() => renameProject(project)} title="Վերանվանել նախագիծ">✎</button>}
+                  {canProject('delete', project.id) && <button disabled={busy} onClick={() => removeProject(project)} title="Արխիվացնել նախագիծ">×</button>}
                 </div>
               )}
             </div>
           ))}
         </div>
         <div className="sidebar-footer">
-          <div className="current-role"><strong>{currentMember?.name || 'Օգտատեր'}</strong><span>{WORKSPACE_ROLES[currentMember?.role]?.label || ''}</span></div>
-          <span>Տվյալները պահվում են այս դիտարկիչում</span>
-          {(canExport || canImport) && <div className="data-actions">
-            {canExport && <button onClick={exportBackup}>⇩ Արտահանել</button>}
-            {canImport && <button onClick={() => importInputRef.current?.click()}>⇧ Ներմուծել</button>}
-          </div>}
-          <input ref={importInputRef} className="hidden-input" type="file" accept="application/json,.json" onChange={importBackup} />
+          <div className="current-role"><strong>{user?.displayName || user?.usernameNormalized || 'Օգտատեր'}</strong><span>{WORKSPACE_ROLE_LABELS[workspace?.role] || workspace?.role || ''}</span></div>
+          <span>Server / PostgreSQL · տվյալները համաժամեցված են</span>
         </div>
       </aside>
 
       <main className="main">
         <header className="topbar">
           <div>
-            <p className="eyebrow">JULO / {view === 'team' ? 'ԹԻՄ' : activeProject === 'all' ? 'ԱՇԽԱՏԱՆՔԱՅԻՆ ՏԱՐԱԾՔ' : 'ՆԱԽԱԳԻԾ'}</p>
+            <p className="eyebrow">JULO / {activeProject === 'all' ? 'ԱՇԽԱՏԱՆՔԱՅԻՆ ՏԱՐԱԾՔ' : 'ՆԱԽԱԳԻԾ'}</p>
             <h1>{headerTitle}</h1>
           </div>
-          {view !== 'team' && <div className="top-actions">
-            <label className="search"><span>⌕</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Որոնել առաջադրանքներ…" /></label>
-            <select className="type-filter" value={executionTypeFilter} onChange={(e) => setExecutionTypeFilter(e.target.value)} title="Ֆիլտրել ըստ կատարման տեսակի">
+          <div className="top-actions">
+            <label className="search"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Որոնել առաջադրանքներ…" /></label>
+            <select className="type-filter" value={executionTypeFilter} onChange={(event) => setExecutionTypeFilter(event.target.value)} title="Ֆիլտրել ըստ կատարման տեսակի">
               <option value="all">Բոլոր կատարման տեսակները</option>
               {Object.entries(TASK_EXECUTION_TYPES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
             </select>
-            <button className="icon-button" onClick={toggleTheme} title="Փոխել թեման">◐</button>
-            <button className="primary" onClick={() => openNewTask()} disabled={!canCreateTask(activeProject === 'all' ? '' : activeProject)}>＋ Ավելացնել</button>
-          </div>}
-          {view === 'team' && <div className="top-actions">
-            <button className="icon-button" onClick={toggleTheme} title="Փոխել թեման">◐</button>
-            {canManageMembers && <button className="primary" onClick={addMember}>＋ Ավելացնել անդամ</button>}
-          </div>}
+            <button className="icon-button" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} title="Փոխել թեման">◐</button>
+            <button className="primary" onClick={() => openNewTask()} disabled={busy || !canTask('create', activeProject === 'all' ? '' : activeProject)}>＋ Ավելացնել</button>
+          </div>
         </header>
 
-        {view === 'team' ? (
-          <TeamView
-            members={workspace.members}
-            projects={workspace.projects}
-            currentUserId={workspace.currentUserId}
-            actorRole={currentMember?.role}
-            canManage={canManageMembers}
-            onRoleChange={changeMemberRole}
-            onRemove={removeMember}
-            onGuestProjectRole={setGuestProjectRole}
-            onAdd={addMember}
-          />
-        ) : view === 'board' ? (
+        {error && <div className="auth-error board-error">{error}</div>}
+
+        {view === 'board' ? (
           <div className="board">
             {STATUSES.map((status) => (
               <section
                 className="column"
                 key={status.id}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => patchTask(e.dataTransfer.getData('text/task-id'), { status: status.id })}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  const task = tasks.find((item) => item.id === event.dataTransfer.getData('text/task-id'));
+                  if (task) changeTaskStatus(task, status.id);
+                }}
               >
-                <div className="column-head"><div><span className={`status-icon ${status.id}`}>{status.icon}</span><strong>{status.title}</strong><span className="count">{tasks.filter((t) => t.status === status.id).length}</span></div>{canCreateTask(activeProject === 'all' ? '' : activeProject) && <button onClick={() => openNewTask(status.id)}>＋</button>}</div>
+                <div className="column-head"><div><span className={`status-icon ${status.id}`}>{status.icon}</span><strong>{status.title}</strong><span className="count">{visibleTasks.filter((task) => task.status === status.id).length}</span></div>{canTask('create', activeProject === 'all' ? '' : activeProject) && <button disabled={busy} onClick={() => openNewTask(status.id)}>＋</button>}</div>
                 <div className="cards">
-                  {tasks.filter((t) => t.status === status.id).map((task) => <TaskCard key={task.id} task={task} project={projectName(task.projectId)} onOpen={() => { setEditingTask(task); setShowTaskModal(true); }} onDragStart={(e) => e.dataTransfer.setData('text/task-id', task.id)} draggable={canForMember(currentMember, 'tasks.update', task.projectId) && (task.status !== 'done' || canReopenCompleted)} />)}
-                  {canCreateTask(activeProject === 'all' ? '' : activeProject) && <button className="add-card" onClick={() => openNewTask(status.id)}>＋ Ավելացնել առաջադրանք</button>}
+                  {visibleTasks.filter((task) => task.status === status.id).map((task) => <TaskCard key={task.id} task={task} project={projectName(task.projectId)} onOpen={() => openTask(task)} onDragStart={(event) => event.dataTransfer.setData('text/task-id', task.id)} draggable={!busy && canTask('update', task.projectId) && (task.status !== 'done' || canReopenCompleted)} />)}
+                  {canTask('create', activeProject === 'all' ? '' : activeProject) && <button className="add-card" disabled={busy} onClick={() => openNewTask(status.id)}>＋ Ավելացնել առաջադրանք</button>}
                 </div>
               </section>
             ))}
           </div>
         ) : (
           <div className="list-view">
-            {tasks.length === 0 ? <EmptyState onAdd={() => openNewTask()} canAdd={canCreateTask(activeProject === 'all' ? '' : activeProject)} /> : tasks.map((task) => (
-              <button className="list-task" key={task.id} onClick={() => { setEditingTask(task); setShowTaskModal(true); }}>
-                <span className={`check ${task.status === 'done' ? 'checked' : ''}`} onClick={(e) => { e.stopPropagation(); patchTask(task.id, { status: task.status === 'done' ? 'doing' : 'done' }); }}>{task.status === 'done' ? '✓' : ''}</span>
+            {visibleTasks.length === 0 ? <EmptyState onAdd={() => openNewTask()} canAdd={canTask('create', activeProject === 'all' ? '' : activeProject)} /> : visibleTasks.map((task) => (
+              <button className="list-task" key={task.id} onClick={() => openTask(task)}>
+                <span className={`check ${task.status === 'done' ? 'checked' : ''}`} onClick={(event) => { event.stopPropagation(); changeTaskStatus(task, task.status === 'done' ? 'doing' : 'done'); }}>{task.status === 'done' ? '✓' : ''}</span>
                 <span className="list-main">
                   <strong>{task.title}</strong>
                   <small>{projectName(task.projectId)} · {TASK_EXECUTION_TYPES[task.executionType] || 'Կատարման տեսակ չի նշված'} · {task.dueDate || 'Ժամկետ չի նշված'}{task.comments?.length ? ` · 💬 ${task.comments.length}` : ''}</small>
@@ -503,27 +387,33 @@ function App() {
         )}
       </main>
 
-      {showTaskModal && <TaskModal
+      {showTaskModal && modalTask && <TaskModal
+        key={modalTask.id || 'new'}
         task={modalTask}
-        projects={visibleProjects}
-        readOnly={modalTask?.id ? !canForMember(currentMember, 'tasks.update', modalTask.projectId) : false}
-        canDelete={modalTask?.id ? canForMember(currentMember, 'tasks.delete', modalTask.projectId) : false}
-        canComment={modalTask?.id ? canForMember(currentMember, 'tasks.comment', modalTask.projectId) : false}
-        canUseTimer={modalTask?.id ? canUseTaskTimer(modalTask.projectId) : false}
+        workspace={workspace}
+        projects={projects}
+        readOnly={modalTask.id ? !canTask('update', modalTask.projectId) : false}
+        canDelete={modalTask.id ? canTask('delete', modalTask.projectId) : false}
+        canComment={modalTask.id ? canTask('comment', modalTask.projectId) : false}
+        canUseTimer={modalTask.id ? canTask('timer', modalTask.projectId) : false}
         canReopenCompleted={canReopenCompleted}
-        onTimerStart={startTimerForTask}
-        onTimerPause={pauseTimerForTask}
-        onTimerStop={stopTimerForTask}
+        guestRequiresProject={guestRequiresProject}
+        busy={busy}
         onAddComment={addTaskComment}
+        onTimerStart={(task) => timerCommand(task, 'start')}
+        onTimerPause={(task) => timerCommand(task, 'pause')}
+        onTimerStop={(task) => timerCommand(task, 'stop')}
         onClose={() => setShowTaskModal(false)}
         onSave={saveTask}
-        onDelete={(id) => { deleteTask(id); setShowTaskModal(false); }}
+        onDelete={deleteTask}
       />}
     </div>
   );
 }
 
-function Nav({ active, icon, children, onClick }) { return <button className={active ? 'nav active' : 'nav'} onClick={onClick}><span>{icon}</span>{children}</button>; }
+function Nav({ active, icon, children, onClick }) {
+  return <button className={active ? 'nav active' : 'nav'} onClick={onClick}><span>{icon}</span>{children}</button>;
+}
 
 function TaskCard({ task, project, onOpen, onDragStart, draggable }) {
   const elapsed = getTimerElapsedMs(task.timer, Date.now());
@@ -536,124 +426,132 @@ function TaskCard({ task, project, onOpen, onDragStart, draggable }) {
     {task.description && <p>{task.description}</p>}
     {(task.tags || []).length > 0 && <div className="tags">{task.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div>}
     <div className="card-meta"><span>▣ {project}{task.comments?.length ? ` · 💬 ${task.comments.length}` : ''}</span><span className={!task.dueDate || (task.dueDate < todayKey() && task.status !== 'done') ? 'overdue' : ''}>◷ {task.dueDate || 'Ժամկետ չի նշված'}</span></div>
+    <div className="card-meta"><span>★ {primaryAssigneeText(task)}</span><span>{task.creatorName ? `Ստեղծող՝ ${task.creatorName}` : ''}</span></div>
   </article>;
 }
 
 function TaskModal({
-  task, projects, readOnly, canDelete, canComment, canUseTimer, canReopenCompleted,
-  onAddComment, onTimerStart, onTimerPause, onTimerStop, onClose, onSave, onDelete,
+  task, workspace, projects, readOnly, canDelete, canComment, canUseTimer, canReopenCompleted,
+  guestRequiresProject, busy, onAddComment, onTimerStart, onTimerPause, onTimerStop, onClose, onSave, onDelete,
 }) {
-  const [draft, setDraft] = useState({ ...task, executionType: task.executionType || '', dueDate: task.dueDate || '', tags: task.tags || [] });
+  const assignment = taskAssigneeDraft(task);
+  const [draft, setDraft] = useState({
+    ...task,
+    executionType: task.executionType || 'execute',
+    dueDate: task.dueDate || todayKey(),
+    tags: task.tags || [],
+    ...assignment,
+  });
+  const [candidates, setCandidates] = useState([]);
   const [commentText, setCommentText] = useState('');
   const [timerNow, setTimerNow] = useState(Date.now());
-  const set = (key, value) => setDraft((d) => ({ ...d, [key]: value }));
-  const canSave = Boolean(draft.title.trim() && TASK_EXECUTION_TYPES[draft.executionType] && draft.dueDate);
+  const [candidateError, setCandidateError] = useState('');
+  const set = (key, value) => setDraft((current) => ({ ...current, [key]: value }));
+  const canSave = Boolean(
+    draft.title.trim()
+    && TASK_EXECUTION_TYPES[draft.executionType]
+    && draft.dueDate
+    && draft.assigneeUserIds?.length
+    && draft.primaryAssigneeUserId
+    && (!guestRequiresProject || draft.projectId)
+  );
   const comments = task.comments || [];
-  const timer = task.timer || emptyTaskTimer();
+  const timer = task.timer || { state: TIMER_STATES.IDLE, elapsedMs: 0 };
   const timerElapsed = getTimerElapsedMs(timer, timerNow);
   const timerStateLabel = timer.state === TIMER_STATES.RUNNING ? 'Աշխատում է' : timer.state === TIMER_STATES.PAUSED ? 'Pause' : timer.state === TIMER_STATES.STOPPED ? 'Stop' : 'Չմեկնարկած';
-  const statusOptions = task.status === 'done' ? (canReopenCompleted ? STATUSES.filter((status) => status.id === 'doing' || status.id === 'done') : STATUSES.filter((status) => status.id === 'done')) : STATUSES;
+  const statusOptions = task.status === 'done'
+    ? (canReopenCompleted ? STATUSES.filter((status) => ['doing', 'done'].includes(status.id)) : STATUSES.filter((status) => status.id === 'done'))
+    : STATUSES;
+
   useEffect(() => {
     setTimerNow(Date.now());
     if (timer.state !== TIMER_STATES.RUNNING) return undefined;
     const interval = window.setInterval(() => setTimerNow(Date.now()), 1000);
     return () => window.clearInterval(interval);
   }, [timer.state, timer.startedAt]);
-  const submitComment = () => {
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (guestRequiresProject && !draft.projectId) {
+        setCandidates([]);
+        return;
+      }
+      try {
+        const result = await backendApi.taskAssignees(workspace.id, draft.projectId || '');
+        if (!cancelled) {
+          setCandidates(result.assignees || []);
+          setCandidateError('');
+        }
+      } catch (requestError) {
+        if (!cancelled) {
+          setCandidates([]);
+          setCandidateError(requestError.message || 'Չհաջողվեց բեռնել կատարողներին։');
+        }
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [workspace.id, draft.projectId, guestRequiresProject]);
+
+  const submitComment = async () => {
     const text = commentText.trim();
     if (!text || !task.id || !canComment) return;
-    if (onAddComment(task.id, text)) setCommentText('');
+    if (await onAddComment(task.id, text)) setCommentText('');
   };
-  return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal" onMouseDown={(e) => e.stopPropagation()}>
-    <div className="modal-head"><div><p className="eyebrow">ԱՌԱՋԱԴՐԱՆՔ</p><h2>{draft.id ? readOnly ? 'Դիտել առաջադրանքը' : 'Խմբագրել առաջադրանքը' : 'Նոր առաջադրանք'}</h2></div><button className="icon-button" onClick={onClose}>×</button></div>
-    <label className="field"><span>Վերնագիր *</span><input autoFocus={!readOnly} disabled={readOnly} required value={draft.title} onChange={(e) => set('title', e.target.value)} placeholder="Ի՞նչ պետք է անել" /></label>
-    <label className="field"><span>Նկարագրություն</span><textarea rows="4" disabled={readOnly} value={draft.description} onChange={(e) => set('description', e.target.value)} placeholder="Մանրամասներ, հղումներ կամ նշումներ…" /></label>
+
+  const changeProject = (projectId) => {
+    setDraft((current) => ({
+      ...current,
+      projectId,
+      assigneeUserIds: [],
+      primaryAssigneeUserId: '',
+    }));
+  };
+
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal" onMouseDown={(event) => event.stopPropagation()}>
+    <div className="modal-head"><div><p className="eyebrow">ԱՌԱՋԱԴՐԱՆՔ · SERVER</p><h2>{draft.id ? readOnly ? 'Դիտել առաջադրանքը' : 'Խմբագրել առաջադրանքը' : 'Նոր առաջադրանք'}</h2></div><button className="icon-button" onClick={onClose}>×</button></div>
+    {candidateError && <div className="auth-error">{candidateError}</div>}
+    <label className="field"><span>Վերնագիր *</span><input autoFocus={!readOnly} disabled={readOnly || busy} required value={draft.title} onChange={(event) => set('title', event.target.value)} placeholder="Ի՞նչ պետք է անել" /></label>
+    <label className="field"><span>Նկարագրություն</span><textarea rows="4" disabled={readOnly || busy} value={draft.description} onChange={(event) => set('description', event.target.value)} placeholder="Մանրամասներ, հղումներ կամ նշումներ…" /></label>
     <div className="field-grid">
-      <label className="field"><span>Նախագիծ</span><select disabled={readOnly} value={draft.projectId} onChange={(e) => set('projectId', e.target.value)}><option value="">Առանց նախագծի</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-      <label className="field"><span>Կարգավիճակ</span><select disabled={readOnly} value={draft.status} onChange={(e) => set('status', e.target.value)}>{statusOptions.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}</select></label>
-      <label className="field"><span>Կատարման տեսակ *</span><select disabled={readOnly} required value={draft.executionType} onChange={(e) => set('executionType', e.target.value)}><option value="">Ընտրել կատարման տեսակը</option>{Object.entries(TASK_EXECUTION_TYPES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
-      <label className="field"><span>Առաջնահերթություն</span><select disabled={readOnly} value={draft.priority} onChange={(e) => set('priority', e.target.value)}>{Object.entries(PRIORITIES).map(([id, p]) => <option key={id} value={id}>{p.label}</option>)}</select></label>
-      <label className="field"><span>Կատարման ժամկետ *</span><input disabled={readOnly} required type="date" value={draft.dueDate} onChange={(e) => set('dueDate', e.target.value)} /></label>
+      <label className="field"><span>Նախագիծ{guestRequiresProject ? ' *' : ''}</span><select disabled={readOnly || busy} value={draft.projectId} onChange={(event) => changeProject(event.target.value)}>{!guestRequiresProject && <option value="">Առանց նախագծի</option>}{guestRequiresProject && <option value="">Ընտրեք նախագիծ</option>}{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
+      <label className="field"><span>Կարգավիճակ</span><select disabled={readOnly || busy} value={draft.status} onChange={(event) => set('status', event.target.value)}>{statusOptions.map((status) => <option key={status.id} value={status.id}>{status.title}</option>)}</select></label>
+      <label className="field"><span>Կատարման տեսակ *</span><select disabled={readOnly || busy} required value={draft.executionType} onChange={(event) => set('executionType', event.target.value)}>{Object.entries(TASK_EXECUTION_TYPES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
+      <label className="field"><span>Առաջնահերթություն</span><select disabled={readOnly || busy} value={draft.priority} onChange={(event) => set('priority', event.target.value)}>{Object.entries(PRIORITIES).map(([id, priority]) => <option key={id} value={id}>{priority.label}</option>)}</select></label>
+      <label className="field"><span>Կատարման ժամկետ *</span><input disabled={readOnly || busy} required type="date" value={draft.dueDate} onChange={(event) => set('dueDate', event.target.value)} /></label>
     </div>
-    {!readOnly && <p className="required-note">* Պարտադիր լրացվող դաշտեր</p>}
-    <label className="field"><span>Պիտակներ</span><input disabled={readOnly} value={draft.tags.join(', ')} onChange={(e) => set('tags', e.target.value.split(',').map((x) => x.trim()))} placeholder="օրինակ՝ դիզայն, հաճախորդ" /></label>
+    {!readOnly && <>
+      <TaskAssigneeFields candidates={candidates} value={draft} onChange={setDraft} disabled={busy} />
+      <p className="required-note">* Ժամկետը, կատարողը և առաջնային կատարողը պարտադիր են։</p>
+    </>}
+    {readOnly && <div className="task-people task-people-three"><div><span>Ստեղծող</span><b>{task.creatorName || '—'}</b></div><div><span>Առաջնային կատարող</span><b>★ {primaryAssigneeText(task)}</b></div><div><span>Կատարողներ</span><b>{assigneeText(task)}</b></div></div>}
+    <label className="field"><span>Պիտակներ</span><input disabled={readOnly || busy} value={draft.tags.join(', ')} onChange={(event) => set('tags', event.target.value.split(',').map((value) => value.trim()))} placeholder="օրինակ՝ դիզայն, հաճախորդ" /></label>
     <section className={`timer-panel ${timer.state}`}>
       <div className="timer-panel-head"><div><strong>Կատարման ժամանակ</strong><span className="timer-state">{timerStateLabel}</span></div><div className="timer-display">⏱ {formatElapsedTime(timerElapsed)}</div></div>
       {task.id ? <div className="timer-controls">
-        {timer.state === TIMER_STATES.IDLE && canUseTimer && task.status !== 'done' && <button className="primary" onClick={() => onTimerStart(task.id)}>▶ Մեկնարկել</button>}
-        {timer.state === TIMER_STATES.PAUSED && canUseTimer && task.status !== 'done' && <button className="primary" onClick={() => onTimerStart(task.id)}>▶ Շարունակել</button>}
-        {timer.state === TIMER_STATES.RUNNING && canUseTimer && <button className="ghost" onClick={() => onTimerPause(task.id)}>Ⅱ Pause</button>}
-        {[TIMER_STATES.RUNNING, TIMER_STATES.PAUSED].includes(timer.state) && canUseTimer && <button className="danger" onClick={() => onTimerStop(task.id)}>■ Stop</button>}
+        {timer.state === TIMER_STATES.IDLE && canUseTimer && task.status !== 'done' && <button className="primary" disabled={busy} onClick={() => onTimerStart(task)}>▶ Մեկնարկել</button>}
+        {timer.state === TIMER_STATES.PAUSED && canUseTimer && task.status !== 'done' && <button className="primary" disabled={busy} onClick={() => onTimerStart(task)}>▶ Շարունակել</button>}
+        {timer.state === TIMER_STATES.RUNNING && canUseTimer && <button className="ghost" disabled={busy} onClick={() => onTimerPause(task)}>Ⅱ Pause</button>}
+        {[TIMER_STATES.RUNNING, TIMER_STATES.PAUSED].includes(timer.state) && canUseTimer && <button className="danger" disabled={busy} onClick={() => onTimerStop(task)}>■ Stop</button>}
         {timer.state === TIMER_STATES.STOPPED && <span className="timer-locked">Timer-ը վերջնական կանգնեցված է։</span>}
       </div> : <p className="timer-hint">Timer-ը հասանելի կլինի առաջադրանքը պահպանելուց հետո։</p>}
       {task.id && !canUseTimer && <p className="timer-hint">Ձեր դերը թույլ չի տալիս կառավարել timer-ը։</p>}
-      {timer.state !== TIMER_STATES.STOPPED && <p className="timer-hint">Մեկ այլ առաջադրանքի timer-ը միացնելիս այս timer-ը ավտոմատ կանցնի Pause վիճակի։</p>}
-      {task.status === 'done' && canReopenCompleted && <p className="timer-hint">«Ընթացքում» վերադարձնելուց հետո timer-ը կվերականգնվի Pause վիճակում։</p>}
+      {timer.state !== TIMER_STATES.STOPPED && <p className="timer-hint">Մեկ այլ առաջադրանքի timer-ը միացնելիս գործող timer-ը server-ում ավտոմատ կանցնի Pause վիճակի։</p>}
     </section>
     <section className="comments-section">
       <div className="comments-head"><strong>Մեկնաբանություններ</strong><span>{comments.length}</span></div>
       {comments.length > 0 ? <div className="comment-list">{comments.map((comment) => <article className="comment" key={comment.id}><div className="comment-meta"><strong>{comment.authorName || 'Օգտատեր'}</strong><time>{new Date(comment.createdAt).toLocaleString('hy-AM')}</time></div><p>{comment.text}</p></article>)}</div> : <p className="comments-empty">Այս առաջադրանքի համար դեռ մեկնաբանություններ չկան։</p>}
-      {task.id && canComment && <div className="comment-compose"><textarea rows="3" value={commentText} onChange={(e) => setCommentText(e.target.value)} placeholder="Գրել մեկնաբանություն…" /><button className="primary" disabled={!commentText.trim()} onClick={submitComment}>Ուղարկել</button></div>}
+      {task.id && canComment && <div className="comment-compose"><textarea rows="3" disabled={busy} value={commentText} onChange={(event) => setCommentText(event.target.value)} placeholder="Գրել մեկնաբանություն…" /><button className="primary" disabled={busy || !commentText.trim()} onClick={submitComment}>Ուղարկել</button></div>}
       {!task.id && <p className="comments-hint">Մեկնաբանություն ավելացնելու համար նախ պահպանեք առաջադրանքը։</p>}
       {task.id && !canComment && <p className="comments-hint">Ձեր դերը թույլ չի տալիս մեկնաբանություն ավելացնել։</p>}
     </section>
-    <div className="modal-actions">{draft.id && canDelete ? <button className="danger" onClick={() => onDelete(draft.id)}>Ջնջել</button> : <span />}<div><button className="ghost" onClick={onClose}>{readOnly ? 'Փակել' : 'Չեղարկել'}</button>{!readOnly && <button className="primary" disabled={!canSave} onClick={() => onSave(draft)}>Պահպանել</button>}</div></div>
+    <div className="modal-actions">{draft.id && canDelete ? <button className="danger" disabled={busy} onClick={() => onDelete(task)}>Ջնջել</button> : <span />}<div><button className="ghost" disabled={busy} onClick={onClose}>{readOnly ? 'Փակել' : 'Չեղարկել'}</button>{!readOnly && <button className="primary" disabled={busy || !canSave} onClick={() => onSave(draft)}>Պահպանել</button>}</div></div>
   </div></div>;
 }
 
-function TeamView({ members, projects, currentUserId, actorRole, canManage, onRoleChange, onRemove, onGuestProjectRole, onAdd }) {
-  return <div className="team-view">
-    <section className="role-grid">
-      {Object.entries(WORKSPACE_ROLES).map(([id, role]) => <article className="role-card" key={id}>
-        <div className="role-card-head"><strong>{role.label}</strong><span>{members.filter((member) => member.role === id).length}</span></div>
-        <p>{role.description}</p>
-      </article>)}
-    </section>
-
-    <section className="team-panel">
-      <div className="team-panel-head"><div><h2>Անդամներ</h2><p>Workspace դերերը կիրառվում են ամբողջ Julo-ի վրա։ Հյուրերի հասանելիությունը սահմանվում է նախագծերով։</p></div>{canManage && <button className="primary" onClick={onAdd}>＋ Ավելացնել անդամ</button>}</div>
-      <div className="member-list">
-        {members.map((member) => {
-          const isCurrent = member.id === currentUserId;
-          const canChange = canManage && !isCurrent;
-          return <article className="member-card" key={member.id}>
-            <div className="member-main">
-              <div className="avatar">{member.name.slice(0, 1).toLocaleUpperCase('hy-AM')}</div>
-              <div><strong>{member.name}{isCurrent ? ' · Դուք' : ''}</strong><span>{member.email || 'Էլ․ փոստ նշված չէ'}</span></div>
-            </div>
-            <div className="member-controls">
-              <select
-                value={member.role}
-                disabled={!canChange}
-                onChange={(e) => onRoleChange(member.id, e.target.value)}
-                title={isCurrent ? 'Ձեր սեփական դերը այս փուլում չի փոխվում այստեղից' : 'Փոխել դերը'}
-              >
-                {Object.entries(WORKSPACE_ROLES).map(([id, role]) => <option key={id} value={id} disabled={!canManageMemberRole(actorRole, member.role, id)}>{role.label}</option>)}
-              </select>
-              {canManage && !isCurrent && member.role !== 'owner' && <button className="danger subtle" onClick={() => onRemove(member.id)}>Հեռացնել</button>}
-            </div>
-
-            {member.role === 'guest' && <div className="guest-access">
-              <div className="guest-access-title"><strong>Նախագծային հասանելիություն</strong><span>Յուրաքանչյուր նախագծի համար ընտրեք հյուրի իրավունքը։</span></div>
-              {projects.length === 0 ? <p className="muted">Նախագծեր դեռ չկան։</p> : <div className="guest-projects">
-                {projects.map((project) => <label key={project.id}>
-                  <span>{project.name}</span>
-                  <select disabled={!canManage} value={member.projectRoles?.[project.id] || ''} onChange={(e) => onGuestProjectRole(member.id, project.id, e.target.value)}>
-                    <option value="">Հասանելի չէ</option>
-                    {Object.entries(PROJECT_ROLES).map(([id, role]) => <option key={id} value={id}>{role.label}</option>)}
-                  </select>
-                </label>)}
-              </div>}
-            </div>}
-          </article>;
-        })}
-      </div>
-    </section>
-
-    <div className="security-note"><strong>Այս beta փուլում դերերը պահվում և կիրառվում են webapp-ի client-side տվյալներում։</strong><span>Իրական բազմաօգտատեր անվտանգությունը պահանջում է authentication և server-side permission checks, որոնք կկապենք նույն role model-ին backend փուլում։</span></div>
-  </div>;
+function EmptyState({ onAdd, canAdd }) {
+  return <div className="empty-state"><div className="empty-icon">◎</div><h2>Առաջադրանքներ չկան</h2><p>Այս դիտման մեջ դեռ առաջադրանք չկա։</p>{canAdd && <button className="primary" onClick={onAdd}>＋ Ստեղծել առաջադրանք</button>}</div>;
 }
-
-function EmptyState({ onAdd, canAdd }) { return <div className="empty"><div>✓</div><h2>Այստեղ դեռ առաջադրանքներ չկան</h2><p>{canAdd ? 'Ստեղծեք առաջին առաջադրանքը և սկսեք կազմակերպել աշխատանքը Julo-ում։' : 'Ձեր դերը թույլ է տալիս դիտել, բայց ոչ ստեղծել առաջադրանքներ։'}</p>{canAdd && <button className="primary" onClick={onAdd}>＋ Ստեղծել առաջադրանք</button>}</div>; }
 
 export default App;

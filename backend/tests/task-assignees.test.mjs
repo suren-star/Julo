@@ -40,7 +40,18 @@ test('task creation accepts multiple assignees and one selected primary assignee
   assert.equal(task.createdBy, OWNER);
 });
 
-test('primary assignee is required when assignees are selected', async () => {
+test('task creation requires at least one assignee', async () => {
+  const service = createWorkspaceService(createRepo());
+  await assert.rejects(
+    () => service.createTask(OWNER, WORKSPACE, {
+      title: 'X', executionType: 'execute', dueDate: '2026-09-20', projectId: PROJECT,
+      assigneeUserIds: [], primaryAssigneeUserId: '',
+    }),
+    (error) => error.code === 'assignee_required',
+  );
+});
+
+test('primary assignee is required', async () => {
   const service = createWorkspaceService(createRepo());
   await assert.rejects(
     () => service.createTask(OWNER, WORKSPACE, {
@@ -73,9 +84,8 @@ test('ineligible viewer cannot be assigned as task performer', async () => {
   );
 });
 
-test('task edit replaces assignees transactionally and audits the change', async () => {
-  const calls = [];
-  const repository = {
+function taskCommandRepo(calls = []) {
+  return {
     async withTaskMutationContext(input, callback) {
       assert.equal(input.taskId, TASK);
       return callback({
@@ -93,7 +103,11 @@ test('task edit replaces assignees transactionally and audits the change', async
       });
     },
   };
-  const service = createTaskCommandService(repository);
+}
+
+test('task edit replaces assignees transactionally and audits the change', async () => {
+  const calls = [];
+  const service = createTaskCommandService(taskCommandRepo(calls));
   const task = await service.updateTask(OWNER, WORKSPACE, TASK, {
     expectedVersion: 4,
     assigneeUserIds: [MEMBER, ADMIN],
@@ -104,4 +118,16 @@ test('task edit replaces assignees transactionally and audits the change', async
   assert.deepEqual(calls[0], ['validate', PROJECT, [MEMBER, ADMIN]]);
   assert.deepEqual(calls[1].slice(0,3), ['replace', [MEMBER,ADMIN], ADMIN]);
   assert.ok(calls.some((entry) => entry[0] === 'audit' && entry[1] === 'task.assignees.changed'));
+});
+
+test('task edit cannot clear all assignees', async () => {
+  const service = createTaskCommandService(taskCommandRepo());
+  await assert.rejects(
+    () => service.updateTask(OWNER, WORKSPACE, TASK, {
+      expectedVersion: 4,
+      assigneeUserIds: [],
+      primaryAssigneeUserId: '',
+    }),
+    (error) => error.code === 'assignee_required',
+  );
 });

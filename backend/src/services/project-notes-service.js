@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { ACTIONS, PROJECT_ROLES, requireProjectPermission, requireWorkspacePermission } from '../domain/authorization.js';
+import {
+  ACTIONS,
+  PROJECT_ROLES,
+  canManageProjectMember,
+  requireProjectPermission,
+  requireWorkspacePermission,
+} from '../domain/authorization.js';
 import {
   assertExpectedVersion,
   assertId,
@@ -72,6 +78,21 @@ export function createProjectNotesService(repository) {
     }
   }
 
+  async function targetMembershipForManagement(actorRole, workspaceId, targetUserId) {
+    const targetMembership = await repository.getWorkspaceMembership(workspaceId, targetUserId);
+    if (!targetMembership || targetMembership.status !== 'active') {
+      throw serviceError(404, 'member_not_found', 'Workspace member not found.');
+    }
+    if (!canManageProjectMember(actorRole, targetMembership.role)) {
+      throw serviceError(
+        403,
+        'project_member_hierarchy_forbidden',
+        'Your workspace role cannot manage this member in a project.',
+      );
+    }
+    return targetMembership;
+  }
+
   return {
     async createProject(userId, workspaceId, input) {
       const wid = assertId(workspaceId, 'workspace_id');
@@ -89,12 +110,8 @@ export function createProjectNotesService(repository) {
       const wid = assertId(workspaceId, 'workspace_id');
       const pid = assertId(projectId, 'project_id');
       const wm = await access.membership(userId, wid);
-      if (wm.role === 'guest') {
-        const role = await access.guestProjectRole(userId, wid, pid);
-        requireProjectPermission({ workspaceRole: wm.role, projectRole: role, action: ACTIONS.PROJECT_UPDATE });
-      } else {
-        requireWorkspacePermission(wm.role, ACTIONS.PROJECT_UPDATE);
-      }
+      const projectRole = await access.projectRole(userId, wid, pid);
+      requireProjectPermission({ workspaceRole: wm.role, projectRole, action: ACTIONS.PROJECT_UPDATE });
       const result = await repository.renameProject({
         workspaceId: wid,
         projectId: pid,
@@ -143,14 +160,8 @@ export function createProjectNotesService(repository) {
         throw serviceError(400, 'invalid_project_role', 'Project role is invalid.');
       }
       await access.project(wid, pid);
-      const targetMembership = await repository.getWorkspaceMembership(wid, uid);
-      if (!targetMembership || targetMembership.status !== 'active') {
-        throw serviceError(404, 'member_not_found', 'Workspace member not found.');
-      }
-      if (targetMembership.role !== 'guest') {
-        throw serviceError(400, 'project_role_guest_only', 'Project roles are only used for Guest workspace members.');
-      }
-      if (input.role === 'viewer') {
+      const targetMembership = await targetMembershipForManagement(wm.role, wid, uid);
+      if (input.role === 'viewer' && ['viewer', 'guest'].includes(targetMembership.role)) {
         await assertProjectMemberCanLoseTaskAccess(userId, wid, wm.role, pid, uid);
       }
       const result = await repository.setProjectMembership({
@@ -172,8 +183,8 @@ export function createProjectNotesService(repository) {
       const wm = await access.membership(userId, wid);
       requireWorkspacePermission(wm.role, ACTIONS.PROJECT_MEMBERS_MANAGE);
       await access.project(wid, pid);
-      const targetMembership = await repository.getWorkspaceMembership(wid, uid);
-      if (targetMembership?.role === 'guest' && targetMembership.status === 'active') {
+      const targetMembership = await targetMembershipForManagement(wm.role, wid, uid);
+      if (['viewer', 'guest'].includes(targetMembership.role)) {
         await assertProjectMemberCanLoseTaskAccess(userId, wid, wm.role, pid, uid);
       }
       return Boolean(await repository.removeProjectMembership({

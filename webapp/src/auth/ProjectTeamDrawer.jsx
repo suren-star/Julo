@@ -117,12 +117,16 @@ export default function ProjectTeamDrawer({ workspace, open, onClose }) {
   };
 
   const assignedIds = useMemo(() => new Set(assigned.map((member) => member.id)), [assigned]);
+  const availableGuests = useMemo(
+    () => members.filter((member) => member.role === 'guest' && !assignedIds.has(member.id)),
+    [members, assignedIds],
+  );
 
   if (!open) return null;
 
   return <div className="backend-drawer">
     <div className="drawer-header">
-      <div><strong>Նախագծի թիմ</strong><span>Նախագծային դերերը կիրառվում են Guest հասանելիության համար</span></div>
+      <div><strong>Նախագծի թիմ</strong><span>Նախագծային դերերը կիրառվում են միայն Guest հասանելիության համար</span></div>
       <button type="button" onClick={onClose}>×</button>
     </div>
 
@@ -138,7 +142,7 @@ export default function ProjectTeamDrawer({ workspace, open, onClose }) {
       {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
     </select>
 
-    <h4>Վերագրված թիմ</h4>
+    <h4>Վերագրված Guest-եր</h4>
     <div className="assignment-list">
       {assigned.map((member) => <div key={member.id}>
         <span>
@@ -147,15 +151,15 @@ export default function ProjectTeamDrawer({ workspace, open, onClose }) {
         </span>
         <button type="button" disabled={busy} onClick={() => remove(member.id)}>Հեռացնել</button>
       </div>)}
-      {selected && assigned.length === 0 && <div className="drawer-empty">Այս նախագծին դեռ ոչ ոք բացահայտ վերագրված չէ։</div>}
+      {selected && assigned.length === 0 && <div className="drawer-empty">Այս նախագծին դեռ Guest հասանելիություն չի տրվել։</div>}
     </div>
 
-    <h4>Ավելացնել աշխատանքային տարածքից</h4>
+    <h4>Ավելացնել Guest աշխատանքային տարածքից</h4>
     <div className="assignment-list">
-      {members.filter((member) => !assignedIds.has(member.id)).map((member) => <div key={member.id}>
+      {availableGuests.map((member) => <div key={member.id}>
         <span>
           <b>{displayName(member)}</b>
-          <small>{member.username_normalized || member.username || ''} · {member.role}</small>
+          <small>{member.username_normalized || member.username || ''} · Guest</small>
         </span>
         <select value="" disabled={busy || !selected} onChange={(event) => assign(member.id, event.target.value)}>
           <option value="">Վերագրել…</option>
@@ -164,6 +168,7 @@ export default function ProjectTeamDrawer({ workspace, open, onClose }) {
           <option value="viewer">Դիտորդ</option>
         </select>
       </div>)}
+      {selected && availableGuests.length === 0 && <div className="drawer-empty">Ավելացնելու հասանելի Guest օգտատեր չկա։</div>}
     </div>
   </div>;
 }

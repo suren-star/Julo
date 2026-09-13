@@ -87,5 +87,95 @@ export function createPostgresRepository(pool) {
     async revokeSessionByTokenHash(tokenHash, at) {
       await pool.query('UPDATE sessions SET revoked_at = COALESCE(revoked_at, $2) WHERE token_hash = $1', [tokenHash, at]);
     },
+
+    async listWorkspacesForUser(userId) {
+      const result = await pool.query(
+        `SELECT w.id, w.name, wm.role, w.created_at, w.updated_at
+         FROM workspace_memberships wm JOIN workspaces w ON w.id = wm.workspace_id
+         WHERE wm.user_id = $1 AND wm.status = 'active'
+         ORDER BY w.created_at, w.id`, [userId]);
+      return result.rows;
+    },
+
+    async getWorkspaceMembership(workspaceId, userId) {
+      const result = await pool.query(
+        `SELECT workspace_id, user_id, role, status
+         FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2 LIMIT 1`,
+        [workspaceId, userId]);
+      return result.rows[0] ?? null;
+    },
+
+    async getWorkspaceForMember(workspaceId, userId, role) {
+      const result = await pool.query(
+        `SELECT w.id, w.name, w.created_at, w.updated_at
+         FROM workspaces w JOIN workspace_memberships wm ON wm.workspace_id = w.id
+         WHERE w.id = $1 AND wm.user_id = $2 AND wm.status = 'active' LIMIT 1`,
+        [workspaceId, userId]);
+      const row = result.rows[0];
+      return row ? { ...row, role } : null;
+    },
+
+    async getProject(workspaceId, projectId) {
+      const result = await pool.query(
+        `SELECT id, workspace_id, name, created_by, created_at, updated_at
+         FROM projects WHERE workspace_id = $1 AND id = $2 AND archived_at IS NULL LIMIT 1`,
+        [workspaceId, projectId]);
+      return result.rows[0] ?? null;
+    },
+
+    async getProjectMembership(projectId, userId) {
+      const result = await pool.query(
+        `SELECT project_id, workspace_id, user_id, role
+         FROM project_memberships WHERE project_id = $1 AND user_id = $2 LIMIT 1`,
+        [projectId, userId]);
+      return result.rows[0] ?? null;
+    },
+
+    async listProjectsForMember(workspaceId, userId, workspaceRole) {
+      if (workspaceRole === 'guest') {
+        const result = await pool.query(
+          `SELECT p.id, p.workspace_id, p.name, p.created_at, p.updated_at, pm.role AS project_role
+           FROM project_memberships pm JOIN projects p ON p.id = pm.project_id AND p.workspace_id = pm.workspace_id
+           WHERE pm.workspace_id = $1 AND pm.user_id = $2 AND p.archived_at IS NULL
+           ORDER BY p.created_at, p.id`, [workspaceId, userId]);
+        return result.rows;
+      }
+      const result = await pool.query(
+        `SELECT id, workspace_id, name, created_at, updated_at
+         FROM projects WHERE workspace_id = $1 AND archived_at IS NULL ORDER BY created_at, id`, [workspaceId]);
+      return result.rows;
+    },
+
+    async listTasksForMember(workspaceId, userId, workspaceRole) {
+      if (workspaceRole === 'guest') {
+        const result = await pool.query(
+          `SELECT t.* FROM tasks t
+           JOIN project_memberships pm ON pm.project_id = t.project_id AND pm.workspace_id = t.workspace_id
+           WHERE t.workspace_id = $1 AND pm.user_id = $2
+           ORDER BY t.updated_at DESC, t.id`, [workspaceId, userId]);
+        return result.rows;
+      }
+      const result = await pool.query(
+        `SELECT * FROM tasks WHERE workspace_id = $1 ORDER BY updated_at DESC, id`, [workspaceId]);
+      return result.rows;
+    },
+
+    async createTask(input) {
+      return withTransaction(pool, async (client) => {
+        const result = await client.query(
+          `INSERT INTO tasks (id, workspace_id, project_id, title, description, status, execution_type, due_date, priority, created_by)
+           VALUES ($1,$2,$3,$4,$5,'todo',$6,$7,$8,$9)
+           RETURNING *`,
+          [input.id, input.workspaceId, input.projectId, input.title, input.description, input.executionType, input.dueDate, input.priority, input.createdBy]);
+        await client.query(
+          `INSERT INTO task_timers (task_id, workspace_id, state, elapsed_ms) VALUES ($1,$2,'idle',0)`,
+          [input.id, input.workspaceId]);
+        await client.query(
+          `INSERT INTO audit_events (workspace_id, actor_user_id, action, entity_type, entity_id, metadata)
+           VALUES ($1,$2,'task.created','task',$3,$4::jsonb)`,
+          [input.workspaceId, input.createdBy, input.id, JSON.stringify({ projectId: input.projectId })]);
+        return result.rows[0];
+      });
+    },
   };
 }

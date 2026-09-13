@@ -54,7 +54,7 @@ function enforceBrowserMutationPolicy(req, allowedOrigins) {
   }
 }
 
-export function createHttpServer({ authService, repository, secureCookies = true, allowedOrigins = [], authRateLimiter = createFixedWindowRateLimiter({ limit: 12, windowMs: 60_000 }) }) {
+export function createHttpServer({ authService, workspaceService, repository, secureCookies = true, allowedOrigins = [], authRateLimiter = createFixedWindowRateLimiter({ limit: 12, windowMs: 60_000 }) }) {
   if (!authService) throw new TypeError('authService is required');
   const server = http.createServer(async (req, res) => {
     try {
@@ -90,9 +90,32 @@ export function createHttpServer({ authService, repository, secureCookies = true
         return json(res, 200, session);
       }
 
+      if (url.pathname === '/api/workspaces' || url.pathname.startsWith('/api/workspaces/')) {
+        if (!workspaceService) return json(res, 503, { error: { code: 'workspace_api_unavailable', message: 'Workspace API unavailable.' } });
+        const session = await authService.getSession(token);
+        if (!session) return json(res, 401, { error: { code: 'not_authenticated', message: 'Authentication required.' } });
+        const userId = session.user.id;
+        if (req.method === 'GET' && url.pathname === '/api/workspaces') {
+          return json(res, 200, { workspaces: await workspaceService.listWorkspaces(userId) });
+        }
+        const match = url.pathname.match(/^\/api\/workspaces\/([^/]+)(?:\/(projects|tasks))?$/);
+        if (match) {
+          const workspaceId = decodeURIComponent(match[1]);
+          const resource = match[2];
+          if (req.method === 'GET' && !resource) return json(res, 200, { workspace: await workspaceService.getWorkspace(userId, workspaceId) });
+          if (req.method === 'GET' && resource === 'projects') return json(res, 200, { projects: await workspaceService.listProjects(userId, workspaceId) });
+          if (req.method === 'GET' && resource === 'tasks') return json(res, 200, { tasks: await workspaceService.listTasks(userId, workspaceId) });
+          if (req.method === 'POST' && resource === 'tasks') {
+            enforceBrowserMutationPolicy(req, allowedOrigins);
+            const input = await readJson(req);
+            return json(res, 201, { task: await workspaceService.createTask(userId, workspaceId, input) });
+          }
+        }
+      }
+
       return json(res, 404, { error: { code: 'not_found', message: 'Route not found.' } });
     } catch (error) {
-      if (error instanceof AuthError) return json(res, error.status, { error: { code: error.code, message: error.message } });
+      if (error instanceof AuthError || (Number.isInteger(error?.status) && typeof error?.code === 'string')) return json(res, error.status, { error: { code: error.code, message: error.message } });
       console.error('Unhandled HTTP error', error);
       return json(res, 500, { error: { code: 'internal_error', message: 'Internal server error.' } });
     }

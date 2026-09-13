@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 
 const scrypt = promisify(scryptCallback);
 const TEST_PASSWORD = '12345';
-const TEST_WORKSPACE_ID = '00000000-0000-4000-8000-000000000001';
+export const TEST_WORKSPACE_ID = '00000000-0000-4000-8000-000000000001';
 
 export const TEST_USERS = Object.freeze([
   { id:'00000000-0000-4000-8000-000000000101', username:'owner1', email:'owner1@testing.julo.local', displayName:'Սեփականատեր', role:'owner' },

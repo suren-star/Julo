@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ACTIONS, requireProjectPermission, requireWorkspacePermission } from '../domain/authorization.js';
+import { ACTIONS, requireProjectPermission } from '../domain/authorization.js';
 import {
   assertId,
   assertTaskExecutionType,
@@ -43,6 +43,14 @@ export function createWorkspaceService(repository) {
     }
   }
 
+  async function projectRoleForAction(userId, workspaceId, workspaceRole, projectId) {
+    if (!projectId) {
+      if (workspaceRole === 'guest') return access.requiredProjectRole(userId, workspaceId, projectId);
+      return null;
+    }
+    return access.projectRole(userId, workspaceId, projectId);
+  }
+
   return {
     async listWorkspaces(userId) {
       return repository.listWorkspacesForUser(userId);
@@ -75,14 +83,18 @@ export function createWorkspaceService(repository) {
       const safeWorkspaceId = assertId(workspaceId, 'workspace_id');
       const membership = await access.membership(userId, safeWorkspaceId);
       const safeProjectId = normalizeProjectId(projectId);
+      const projectRole = await projectRoleForAction(
+        userId,
+        safeWorkspaceId,
+        membership.role,
+        safeProjectId,
+      );
 
-      if (membership.role === 'guest') {
-        const projectRole = await access.guestProjectRole(userId, safeWorkspaceId, safeProjectId);
-        requireProjectPermission({ workspaceRole: membership.role, projectRole, action: ACTIONS.TASK_READ });
-      } else {
-        requireWorkspacePermission(membership.role, ACTIONS.TASK_READ);
-        if (safeProjectId) await access.project(safeWorkspaceId, safeProjectId);
-      }
+      requireProjectPermission({
+        workspaceRole: membership.role,
+        projectRole,
+        action: ACTIONS.TASK_READ,
+      });
 
       return repository.listEligibleTaskAssignees(safeWorkspaceId, safeProjectId);
     },
@@ -91,14 +103,18 @@ export function createWorkspaceService(repository) {
       const safeWorkspaceId = assertId(workspaceId, 'workspace_id');
       const membership = await access.membership(userId, safeWorkspaceId);
       const task = validateNewTask(input);
+      const projectRole = await projectRoleForAction(
+        userId,
+        safeWorkspaceId,
+        membership.role,
+        task.projectId,
+      );
 
-      if (membership.role === 'guest') {
-        const projectRole = await access.guestProjectRole(userId, safeWorkspaceId, task.projectId);
-        requireProjectPermission({ workspaceRole: membership.role, projectRole, action: ACTIONS.TASK_CREATE });
-      } else {
-        requireWorkspacePermission(membership.role, ACTIONS.TASK_CREATE);
-        if (task.projectId) await access.project(safeWorkspaceId, task.projectId);
-      }
+      requireProjectPermission({
+        workspaceRole: membership.role,
+        projectRole,
+        action: ACTIONS.TASK_CREATE,
+      });
 
       await assertAssigneeEligibility(safeWorkspaceId, task.projectId, task.assigneeUserIds);
 

@@ -22,17 +22,28 @@ export function sessionTokenMatches(token, tokenHash) {
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
-export function serializeSessionCookie(token, { maxAgeSeconds = DEFAULT_SESSION_TTL_SECONDS, secure = true, cookieName = SESSION_COOKIE_NAME } = {}) {
+function normalizeSameSite(value) {
+  const normalized = String(value || 'Lax').trim().toLowerCase();
+  if (normalized === 'none') return 'None';
+  if (normalized === 'strict') return 'Strict';
+  return 'Lax';
+}
+
+export function serializeSessionCookie(token, { maxAgeSeconds = DEFAULT_SESSION_TTL_SECONDS, secure = true, cookieName = SESSION_COOKIE_NAME, sameSite = 'Lax' } = {}) {
   if (!Number.isSafeInteger(maxAgeSeconds) || maxAgeSeconds <= 0) throw new Error('maxAgeSeconds must be a positive integer.');
   if (cookieName.startsWith('__Host-') && !secure) throw new Error('__Host- cookies require Secure.');
-  const attributes = [`${cookieName}=${token}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${maxAgeSeconds}`];
+  const normalizedSameSite = normalizeSameSite(sameSite);
+  if (normalizedSameSite === 'None' && !secure) throw new Error('SameSite=None cookies require Secure.');
+  const attributes = [`${cookieName}=${token}`, 'Path=/', 'HttpOnly', `SameSite=${normalizedSameSite}`, `Max-Age=${maxAgeSeconds}`];
   if (secure) attributes.push('Secure');
   return attributes.join('; ');
 }
 
-export function serializeExpiredSessionCookie({ secure = true, cookieName = SESSION_COOKIE_NAME } = {}) {
+export function serializeExpiredSessionCookie({ secure = true, cookieName = SESSION_COOKIE_NAME, sameSite = 'Lax' } = {}) {
   if (cookieName.startsWith('__Host-') && !secure) throw new Error('__Host- cookies require Secure.');
-  const attributes = [`${cookieName}=`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0'];
+  const normalizedSameSite = normalizeSameSite(sameSite);
+  if (normalizedSameSite === 'None' && !secure) throw new Error('SameSite=None cookies require Secure.');
+  const attributes = [`${cookieName}=`, 'Path=/', 'HttpOnly', `SameSite=${normalizedSameSite}`, 'Max-Age=0'];
   if (secure) attributes.push('Secure');
   return attributes.join('; ');
 }

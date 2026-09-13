@@ -1,0 +1,98 @@
+JULO BACKEND PROGRESS REPORT
+Date: 2026-09-13
+Sequence: 004
+Branch: backend-auth-foundation
+PR: #2 (draft, unmerged)
+
+1. RENDER TEST INFRA CREATED
+
+Render workspace:
+- Suren's workspace
+- workspace id: tea-daj708lg1s2s739kn3kg
+
+PostgreSQL:
+- name: julo-test-db
+- id: dpg-daj747h594qs73b2mqvg-a
+- plan: free
+- region: frankfurt
+- version: PostgreSQL 18
+- status at checkpoint: available
+- database: julo_test_db
+- user: julo_test_db_user
+- free database expiry reported by Render: 2026-10-13
+
+Web service:
+- name: julo-test-api
+- id: srv-daj74vuk1f9s73chchsg
+- plan: free
+- region: frankfurt
+- branch: backend-auth-foundation
+- public URL: https://julo-test-api.onrender.com
+- auto deploy: enabled
+- build command: cd backend && npm ci --ignore-scripts && npm install pg@8.13.1 --no-save
+- start command: cd backend && npm start
+
+Configured environment:
+- NODE_ENV=test
+- JULO_ALLOWED_ORIGINS=https://suren-star.github.io
+- JULO_CROSS_SITE_COOKIES=1
+- JULO_RUN_MIGRATIONS=1
+- JULO_SEED_TEST_USERS=1
+- JULO_ALLOW_TEST_SEED=1
+
+2. FIRST DEPLOY RESULT
+
+Render successfully cloned the public repository, selected backend-auth-foundation, installed Node and dependencies, installed the pg driver and completed the build successfully.
+
+Startup then failed intentionally/expectedly with:
+DATABASE_URL is required.
+
+No application code failure was observed before that missing secret.
+
+Reason:
+The Render connector does not expose the generated Postgres password/connection string and its web-service creation action only accepts literal env values; it cannot attach a database connection reference securely.
+
+3. ONE MANUAL SECRET-LINK STEP REMAINS
+
+In Render Dashboard, set julo-test-api environment variable DATABASE_URL to the Internal Database URL from julo-test-db.
+
+Do not paste or commit that URL into GitHub or chat. It contains database credentials.
+
+After that environment update, Render should redeploy the service. Startup will:
+- connect to PostgreSQL;
+- run migrations;
+- seed the five requested test users in the test environment;
+- listen publicly on Render's assigned PORT.
+
+4. CROSS-ORIGIN AUTH PREPARATION COMPLETED
+
+Backend now supports:
+- explicit credentialed CORS for allowed origins;
+- GitHub Pages origin allowlist;
+- OPTIONS preflight;
+- Secure HttpOnly SameSite=None session cookie mode for the separate Pages/Render origins.
+
+Pages login build now targets:
+https://julo-test-api.onrender.com
+
+The login page CSP explicitly allows only that test API origin.
+
+Canonical login URL remains:
+https://suren-star.github.io/Julo/login
+
+5. SOURCE VALIDATION
+
+Before the final Pages/API wiring commits, both webapp and backend validation were green.
+The latest wiring commits triggered fresh PR validation runs and must be checked before promotion/merge.
+
+6. NEXT STEPS
+
+1. Manually link DATABASE_URL in Render Dashboard using the database Internal Database URL.
+2. Verify Render deploy reaches live/healthy state.
+3. Verify migrations and five seeded accounts.
+4. Test API health and login flows for owner1/admin1/member1/viewer1/guest1.
+5. Verify credentialed browser session from GitHub Pages origin.
+6. Re-check latest GitHub backend and webapp CI.
+7. Promote only the verified login entry to Pages/main according to the agreed deployment flow; do not merge the larger draft backend PR blindly.
+
+END OF REPORT

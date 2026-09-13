@@ -9,11 +9,10 @@ import './mobile.css';
 import './auth/auth.css';
 import './auth/tasks.css';
 
-const loginEntry = /\/login\/?$/.test(window.location.pathname);
-const backendEnabled = loginEntry || import.meta.env.VITE_JULO_BACKEND_ENABLED === 'true';
+const isLoginRoute = /\/login\/?$/.test(window.location.pathname);
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    {backendEnabled ? <AuthGateway><App /></AuthGateway> : <App />}
+    {isLoginRoute ? <AuthGateway><App /></AuthGateway> : <App />}
   </React.StrictMode>,
 );

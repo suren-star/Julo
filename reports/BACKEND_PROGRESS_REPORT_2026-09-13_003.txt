@@ -1,0 +1,55 @@
+JULO BACKEND PROGRESS REPORT
+Date: 2026-09-13
+Sequence: 003
+Branch: backend-auth-foundation
+PR: #2 (draft, unmerged)
+
+1. LOGIN URL DECISION
+
+Canonical testing login entry is fixed as:
+https://suren-star.github.io/Julo/login
+
+The source implementation now includes a dedicated multi-page Vite login entry (`webapp/login/index.html`) so direct navigation and refresh do not depend on SPA fallback behavior.
+
+`webapp/src/main.jsx` detects `/login` and forces backend authentication mode even when the normal Pages root remains local-first.
+
+2. VALIDATION
+
+Webapp PR CI after the login entry change:
+- install: PASS
+- npm audit: PASS
+- source security check: PASS
+- regression tests: PASS
+- Vite multi-page build: PASS
+
+Backend PR CI on the same head:
+- install: PASS
+- npm audit: PASS
+- backend tests: PASS
+- syntax checks: PASS
+
+3. CURRENT DEPLOYMENT STATUS
+
+The `/login` entry is implemented on the draft branch but is NOT live on the production GitHub Pages site yet because:
+- the branch is intentionally unmerged;
+- the backend API does not yet have a public deployment;
+- PostgreSQL has not yet been provisioned for the running API;
+- the five requested users are seed fixtures, not live accounts yet.
+
+Do not treat the login URL as test-ready until the API/database deployment is verified.
+
+4. NEXT EXECUTION STEP
+
+Provision a public backend environment (Render selected as the intended deployment provider), including:
+- PostgreSQL database;
+- Node backend service;
+- DATABASE_URL and runtime environment validation;
+- migrations;
+- development test-user seed in the non-production test environment;
+- allowed browser origin for https://suren-star.github.io;
+- webapp API base URL configuration;
+- end-to-end login verification for owner1/admin1/member1/viewer1/guest1.
+
+After the backend is live and verified, promote the login entry to the Pages deployment without merging unverified backend work blindly.
+
+END OF REPORT

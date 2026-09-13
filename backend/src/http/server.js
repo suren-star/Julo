@@ -54,7 +54,7 @@ function enforceBrowserMutationPolicy(req, allowedOrigins) {
   }
 }
 
-export function createHttpServer({ authService, workspaceService, repository, secureCookies = true, allowedOrigins = [], authRateLimiter = createFixedWindowRateLimiter({ limit: 12, windowMs: 60_000 }) }) {
+export function createHttpServer({ authService, workspaceService, taskCommandService, repository, secureCookies = true, allowedOrigins = [], authRateLimiter = createFixedWindowRateLimiter({ limit: 12, windowMs: 60_000 }) }) {
   if (!authService) throw new TypeError('authService is required');
   const server = http.createServer(async (req, res) => {
     try {
@@ -95,9 +95,28 @@ export function createHttpServer({ authService, workspaceService, repository, se
         const session = await authService.getSession(token);
         if (!session) return json(res, 401, { error: { code: 'not_authenticated', message: 'Authentication required.' } });
         const userId = session.user.id;
+
         if (req.method === 'GET' && url.pathname === '/api/workspaces') {
           return json(res, 200, { workspaces: await workspaceService.listWorkspaces(userId) });
         }
+
+        const taskMutation = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/tasks\/([^/]+)(?:\/timer\/(start|pause|stop))?$/);
+        if (taskMutation) {
+          if (!taskCommandService) return json(res, 503, { error: { code: 'task_commands_unavailable', message: 'Task commands unavailable.' } });
+          const workspaceId = decodeURIComponent(taskMutation[1]);
+          const taskId = decodeURIComponent(taskMutation[2]);
+          const timerCommand = taskMutation[3];
+          if (req.method === 'PATCH' && !timerCommand) {
+            enforceBrowserMutationPolicy(req, allowedOrigins);
+            const input = await readJson(req);
+            return json(res, 200, { task: await taskCommandService.updateTask(userId, workspaceId, taskId, input) });
+          }
+          if (req.method === 'POST' && timerCommand) {
+            enforceBrowserMutationPolicy(req, allowedOrigins);
+            return json(res, 200, { timer: await taskCommandService.timerCommand(userId, workspaceId, taskId, timerCommand) });
+          }
+        }
+
         const match = url.pathname.match(/^\/api\/workspaces\/([^/]+)(?:\/(projects|tasks))?$/);
         if (match) {
           const workspaceId = decodeURIComponent(match[1]);

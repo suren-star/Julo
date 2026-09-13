@@ -29,19 +29,24 @@ This directory is Julo's server-side security boundary. It stays separate from `
 
 ### Phase 3 — server-owned workspace/task access
 
-- Workspace identity is resolved from the authenticated server session; client `currentUserId` is ignored.
-- Active workspace membership is loaded from PostgreSQL before workspace/project/task operations.
-- Guest project scope is loaded from `project_memberships`; client-provided roles are not trusted.
-- Authenticated routes now include:
-  - `GET /api/workspaces`
-  - `GET /api/workspaces/:workspaceId`
-  - `GET /api/workspaces/:workspaceId/projects`
-  - `GET /api/workspaces/:workspaceId/tasks`
-  - `POST /api/workspaces/:workspaceId/tasks`
-- Guest task listing is SQL-filtered to assigned projects only.
-- Task creation enforces Julo's required title, execution type, and due date on the server.
-- Viewer task creation is rejected; Guest Manager/Editor task creation is project-scoped.
-- New tasks create an idle timer row and `task.created` audit event in the same transaction.
+- Authenticated identity is derived only from the server session.
+- Active workspace memberships are loaded from PostgreSQL for workspace/project/task access.
+- Guest project roles are loaded from `project_memberships`; client role claims are ignored.
+- Authenticated workspace/project/task list routes.
+- Server-authorized task creation with required title, execution type, and due-date validation.
+- Task creation writes an idle timer row and `task.created` audit event transactionally.
+
+### Phase 4 — transactional task status and timer commands
+
+- `PATCH /api/workspaces/:workspaceId/tasks/:taskId` updates whitelisted task fields with required `expectedVersion` optimistic concurrency.
+- Completed-task status rules are enforced server-side; only Owner/Admin can reopen `done -> doing`.
+- Completion finalizes the timer as `completed`, except a previously manual-stopped timer stays manual-stopped.
+- Reopen restores the timer to `paused` without losing elapsed time.
+- Timer `start`, `pause`, and `stop` commands are server-authorized and audited.
+- Starting a timer auto-pauses another running timer in the same workspace and settles its elapsed time.
+- Workspace row locking serializes task/timer mutation transactions and avoids competing-start deadlocks.
+- A manually stopped timer cannot restart through the normal start command.
+- All task/timer mutation audits use the authenticated session user as actor.
 
 Run validation:
 
@@ -55,29 +60,27 @@ npm run check
 
 ## Security boundary
 
-The backend resolves the authenticated user exclusively from a server-side session, loads memberships from PostgreSQL, and authorizes workspace/project/task operations from database state. Client-provided `currentUserId`, workspace role, project role, or other authority claims are never trusted.
+The backend resolves the authenticated user exclusively from a server-side session, loads memberships from PostgreSQL, and authorizes workspace/project/task operations from server-owned data. Client-provided `currentUserId`, workspace role, project role, or other authority claims are never trusted.
 
 The existing browser roles remain UX hints only until the webapp is migrated to this API.
 
 ## Intentional current limits
 
 - A concrete PostgreSQL driver package and production pool bootstrap are not pinned yet; repository and migration code accept a pg-compatible pool so hosting/provider selection stays separate.
+- PostgreSQL SQL is not yet exercised in CI against a real PostgreSQL service; current repository tests use adapters/mocks.
 - The in-memory authentication rate limiter is suitable for one process only. Multi-instance production deployment requires shared rate-limit storage.
-- Task update/delete/comment/timer HTTP commands are not exposed yet.
-- Project/member mutation endpoints are not exposed yet.
+- Task comments, task deletion, project/member mutations, and production deployment are not exposed yet.
 - The webapp still uses its local-first storage and local identity model.
-- No production database or API host is provisioned yet.
 
 ## Next backend phase
 
-1. Add transactional task update/status/timer commands with optimistic version checks and audit-event writes.
-2. Add task comment endpoints with server-owned author identity.
-3. Add project and membership mutation endpoints with authorization checks.
-4. Pin the concrete PostgreSQL driver and add environment/config validation plus pool bootstrap.
-5. Add PostgreSQL-backed integration tests and exercise the real migration set.
-6. Add production-grade distributed auth throttling/session cleanup strategy.
-7. Only after the API is stable, migrate `webapp/` from local identity/authorization to server sessions and API data.
+1. Pin the concrete PostgreSQL driver and add environment/config validation plus pool bootstrap.
+2. Add PostgreSQL-backed CI integration tests that execute all migrations and task/timer transactions against a real database.
+3. Add task comments and task deletion with server-side authorization and audit events.
+4. Add project/member mutation endpoints and ownership invariants.
+5. Add session cleanup and production-grade distributed auth throttling strategy.
+6. Only after the API is stable, migrate `webapp/` from local identity/authorization to server sessions and API data.
 
 ## Deployment note
 
-GitHub Pages remains a static frontend host and cannot host this backend. Production should use HTTPS and a dedicated Julo origin/domain arrangement. The API/database hosting target remains intentionally provider-neutral until the deployment phase.
+GitHub Pages remains a static frontend host and cannot host this backend. Production should use HTTPS and a dedicated Julo origin/domain arrangement. The API/database hosting target remains provider-neutral until the deployment phase.

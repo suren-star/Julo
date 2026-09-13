@@ -29,13 +29,15 @@ The browser may retain the visual theme preference in localStorage. Tasks, proje
 
 The Board reads server tasks and projects. All mutations return to the same server model:
 
-- create task -> `POST /api/workspaces/:workspaceId/tasks`;
+- create task -> `POST /api/workspaces/:workspaceId/tasks`; the requested initial status is validated and persisted in the same transaction;
 - edit metadata, status, project, tags or assignments -> versioned task `PATCH`;
 - drag/drop status -> the same versioned task `PATCH`;
 - add comment -> task comments API;
 - start/pause/stop timer -> task timer command API;
 - delete task -> versioned task `DELETE`;
 - create/rename/archive project -> project APIs.
+
+The task Project selector may call the same project-create API and then select the newly created project. It must not maintain a second project store or task creation path.
 
 The former local task storage, permission and timer engines are removed. Do not reintroduce a second Board task state machine.
 
@@ -50,6 +52,7 @@ Every server-created task, including a task created from a Note, follows the sam
 - project changes revalidate the existing assignees in the destination project;
 - task updates and deletion use optimistic `expectedVersion` checks;
 - status transitions are validated server-side;
+- a newly created `done` task is persisted as completed in the same transaction, including a completed/stopped timer state;
 - completed tasks can be reopened only by Owner/Admin;
 - comments are permission checked server-side;
 - at most one timer is running in a workspace; starting another pauses the previous timer;
@@ -60,6 +63,10 @@ The web client mirrors authorization only to hide or disable controls. The backe
 ## Role boundary
 
 Workspace roles are `owner`, `admin`, `member`, `viewer`, `guest`. Guest access is further scoped by project role `manager`, `editor` or `viewer`.
+
+Project roles exist only for workspace members whose workspace role is `guest`. Owner/Admin/Member/Viewer behavior is defined by the workspace role and must not be altered by a project-role record.
+
+A Guest who is assigned to a project task must be reassigned before their project access can be reduced to Viewer or removed. A project with assignees who are not eligible outside that project must be cleaned up before the project can be archived and its tasks moved to no project.
 
 The Board must use the server-returned workspace/project roles and never derive elevated permissions from client-owned data.
 

@@ -22,6 +22,10 @@ function noteInput(input) {
   };
 }
 
+function taskAssigneeIds(task) {
+  return new Set((task?.assignees || []).map((assignee) => assignee.id).filter(Boolean));
+}
+
 export function createProjectNotesService(repository) {
   if (!repository) throw new TypeError('repository is required');
   const access = createAccessContext(repository);
@@ -31,6 +35,40 @@ export function createProjectNotesService(repository) {
     const allowed = new Set(candidates.map((candidate) => candidate.id));
     if (assigneeUserIds.some((id) => !allowed.has(id))) {
       throw serviceError(400, 'ineligible_task_assignee', 'One or more selected users cannot be assigned to this task.');
+    }
+  }
+
+  async function projectTasksForManager(actorUserId, workspaceId, workspaceRole, projectId) {
+    const tasks = await repository.listTasksForMember(workspaceId, actorUserId, workspaceRole);
+    return tasks.filter((task) => (task.project_id ?? task.projectId ?? null) === projectId);
+  }
+
+  async function assertProjectMemberCanLoseTaskAccess(actorUserId, workspaceId, workspaceRole, projectId, targetUserId) {
+    const tasks = await projectTasksForManager(actorUserId, workspaceId, workspaceRole, projectId);
+    if (tasks.some((task) => taskAssigneeIds(task).has(targetUserId))) {
+      throw serviceError(
+        409,
+        'project_member_has_task_assignments',
+        'Reassign this user from project tasks before removing or reducing project access.',
+      );
+    }
+  }
+
+  async function assertProjectCanArchive(actorUserId, workspaceId, workspaceRole, projectId) {
+    const [tasks, unassignedCandidates] = await Promise.all([
+      projectTasksForManager(actorUserId, workspaceId, workspaceRole, projectId),
+      repository.listEligibleTaskAssignees(workspaceId, null),
+    ]);
+    const allowedWithoutProject = new Set(unassignedCandidates.map((candidate) => candidate.id));
+    const hasInvalidAssignee = tasks.some((task) => (
+      [...taskAssigneeIds(task)].some((assigneeId) => !allowedWithoutProject.has(assigneeId))
+    ));
+    if (hasInvalidAssignee) {
+      throw serviceError(
+        409,
+        'project_has_scoped_task_assignees',
+        'Reassign project-scoped task assignees before archiving this project.',
+      );
     }
   }
 
@@ -72,6 +110,8 @@ export function createProjectNotesService(repository) {
       const pid = assertId(projectId, 'project_id');
       const wm = await access.membership(userId, wid);
       requireWorkspacePermission(wm.role, ACTIONS.PROJECT_DELETE);
+      await access.project(wid, pid);
+      await assertProjectCanArchive(userId, wid, wm.role, pid);
       const result = await repository.archiveProject({ workspaceId: wid, projectId: pid, actorUserId: userId });
       if (!result) throw serviceError(404, 'project_not_found', 'Project not found.');
       return result;
@@ -102,6 +142,17 @@ export function createProjectNotesService(repository) {
       if (!PROJECT_ROLES.includes(input?.role)) {
         throw serviceError(400, 'invalid_project_role', 'Project role is invalid.');
       }
+      await access.project(wid, pid);
+      const targetMembership = await repository.getWorkspaceMembership(wid, uid);
+      if (!targetMembership || targetMembership.status !== 'active') {
+        throw serviceError(404, 'member_not_found', 'Workspace member not found.');
+      }
+      if (targetMembership.role !== 'guest') {
+        throw serviceError(400, 'project_role_guest_only', 'Project roles are only used for Guest workspace members.');
+      }
+      if (input.role === 'viewer') {
+        await assertProjectMemberCanLoseTaskAccess(userId, wid, wm.role, pid, uid);
+      }
       const result = await repository.setProjectMembership({
         workspaceId: wid,
         projectId: pid,
@@ -120,6 +171,11 @@ export function createProjectNotesService(repository) {
       const uid = assertId(targetUserId, 'user_id');
       const wm = await access.membership(userId, wid);
       requireWorkspacePermission(wm.role, ACTIONS.PROJECT_MEMBERS_MANAGE);
+      await access.project(wid, pid);
+      const targetMembership = await repository.getWorkspaceMembership(wid, uid);
+      if (targetMembership?.role === 'guest' && targetMembership.status === 'active') {
+        await assertProjectMemberCanLoseTaskAccess(userId, wid, wm.role, pid, uid);
+      }
       return Boolean(await repository.removeProjectMembership({
         workspaceId: wid,
         projectId: pid,

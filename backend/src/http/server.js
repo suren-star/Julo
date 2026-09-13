@@ -126,11 +126,23 @@ export function createHttpServer({ authService, workspaceService, taskCommandSer
           return json(res, 200, { assignees: await workspaceService.listTaskAssigneeCandidates(userId, workspaceId, projectId) });
         }
 
+        const taskComment = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/tasks\/([^/]+)\/comments$/);
+        if (taskComment) {
+          if (!taskCommandService) return json(res, 503, { error: { code: 'task_commands_unavailable', message: 'Task commands unavailable.' } });
+          const workspaceId = decodeURIComponent(taskComment[1]);
+          const taskId = decodeURIComponent(taskComment[2]);
+          if (req.method === 'POST') {
+            enforceBrowserMutationPolicy(req, allowedOrigins);
+            return json(res, 201, { comment: await taskCommandService.addComment(userId, workspaceId, taskId, await readJson(req)) });
+          }
+        }
+
         const taskMutation = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/tasks\/([^/]+)(?:\/timer\/(start|pause|stop))?$/);
         if (taskMutation) {
           if (!taskCommandService) return json(res, 503, { error: { code: 'task_commands_unavailable', message: 'Task commands unavailable.' } });
           const workspaceId=decodeURIComponent(taskMutation[1]), taskId=decodeURIComponent(taskMutation[2]), timerCommand=taskMutation[3];
           if (req.method === 'PATCH' && !timerCommand) { enforceBrowserMutationPolicy(req,allowedOrigins); return json(res,200,{task:await taskCommandService.updateTask(userId,workspaceId,taskId,await readJson(req))}); }
+          if (req.method === 'DELETE' && !timerCommand) { enforceBrowserMutationPolicy(req,allowedOrigins); await taskCommandService.deleteTask(userId,workspaceId,taskId,await readJson(req)); return json(res,200,{ok:true}); }
           if (req.method === 'POST' && timerCommand) { enforceBrowserMutationPolicy(req,allowedOrigins); return json(res,200,{timer:await taskCommandService.timerCommand(userId,workspaceId,taskId,timerCommand)}); }
         }
 

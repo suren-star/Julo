@@ -1,0 +1,13 @@
+{
+  "name": "julo-backend",
+  "private": true,
+  "version": "0.1.0-alpha.1",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "check": "node --check src/security/password.js && node --check src/security/session-token.js && node --check src/domain/authorization.js && node --check src/domain/task-policy.js"
+  }
+}

@@ -1,0 +1,54 @@
+name: Validate Julo Webapp
+
+on:
+  pull_request:
+    paths:
+      - 'webapp/**'
+      - '.github/workflows/webapp-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: webapp-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+
+      - name: Install dependencies
+        working-directory: webapp
+        run: npm ci
+
+      - name: Audit dependencies
+        working-directory: webapp
+        run: npm audit --audit-level=high
+
+      - name: Run source security checks
+        working-directory: webapp
+        run: npm run security:check
+
+      - name: Run regression tests
+        working-directory: webapp
+        run: npm test
+
+      - name: Build webapp
+        working-directory: webapp
+        run: npm run build

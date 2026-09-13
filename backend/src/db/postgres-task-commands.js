@@ -49,6 +49,42 @@ function taskMutationTools(client, { workspaceId, taskId, userId }) {
       return result.rows[0] ?? null;
     },
 
+    async validateAssignees(projectId, assigneeUserIds) {
+      if (!assigneeUserIds.length) return [];
+      const result = await client.query(
+        `SELECT wm.user_id
+         FROM workspace_memberships wm
+         LEFT JOIN project_memberships pm
+           ON pm.workspace_id = wm.workspace_id
+          AND pm.user_id = wm.user_id
+          AND pm.project_id = $2::uuid
+         JOIN users u ON u.id = wm.user_id
+         WHERE wm.workspace_id = $1
+           AND wm.user_id = ANY($3::uuid[])
+           AND wm.status = 'active'
+           AND u.disabled_at IS NULL
+           AND (
+             wm.role IN ('owner','admin','member')
+             OR (wm.role = 'guest' AND $2::uuid IS NOT NULL AND pm.role IN ('manager','editor'))
+           )`,
+        [workspaceId, projectId, assigneeUserIds]);
+      const eligible = new Set(result.rows.map((row) => row.user_id));
+      return assigneeUserIds.filter((id) => !eligible.has(id));
+    },
+
+    async replaceAssignees(assigneeUserIds, primaryAssigneeUserId, now) {
+      await client.query('DELETE FROM task_assignees WHERE task_id = $1', [taskId]);
+      for (const assigneeUserId of assigneeUserIds) {
+        await client.query(
+          `INSERT INTO task_assignees (task_id, workspace_id, user_id, assigned_by, is_primary, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$6)`,
+          [taskId, workspaceId, assigneeUserId, userId, assigneeUserId === primaryAssigneeUserId, now]);
+      }
+      await client.query(
+        'UPDATE tasks SET assignee_user_id = $3 WHERE workspace_id = $1 AND id = $2',
+        [workspaceId, taskId, primaryAssigneeUserId]);
+    },
+
     async pauseOtherRunningTimers(now) {
       await client.query(
         `UPDATE task_timers

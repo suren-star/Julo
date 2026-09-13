@@ -30,7 +30,9 @@ async function main() {
   const allowedOrigins = parseOrigins(process.env.JULO_ALLOWED_ORIGINS);
   if (!allowedOrigins.length) throw new Error('JULO_ALLOWED_ORIGINS must include at least one browser origin.');
 
-  const { Pool } = await import('pg');
+  const pgModule = await import('pg');
+  const Pool = pgModule.Pool ?? pgModule.default?.Pool;
+  if (typeof Pool !== 'function') throw new Error('PostgreSQL Pool constructor is unavailable.');
   const pool = new Pool({
     connectionString: databaseUrl,
     max: Number(process.env.JULO_DB_POOL_MAX || 5),

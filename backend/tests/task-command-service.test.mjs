@@ -74,7 +74,7 @@ test('stopped timer cannot restart normally', async () => {
 });
 
 test('viewer cannot control timer', async () => {
-  const repository=fakeRepository({role:'viewer',timerState:'runningg});
+  const repository=fakeRepository({role:'viewer',timerState:'running'});
   await assert.rejects(()=>createTaskCommandService(repository).timerCommand('user-12345678','workspace-12345678','task-12345678','pause'),e=>e.status===403);
 });
 

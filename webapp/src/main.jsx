@@ -7,6 +7,7 @@ import './management.css';
 import './design-system.css';
 import './mobile.css';
 import './auth/auth.css';
+import './auth/tasks.css';
 
 const loginEntry = /\/login\/?$/.test(window.location.pathname);
 const backendEnabled = loginEntry || import.meta.env.VITE_JULO_BACKEND_ENABLED === 'true';

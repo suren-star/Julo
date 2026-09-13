@@ -18,6 +18,10 @@ async function request(path, { method = 'GET', body } = {}) {
   return payload;
 }
 
+function normalizeTaskInput(input) {
+  return { ...input, projectId: input?.projectId ? input.projectId : null };
+}
+
 export const backendApi = Object.freeze({
   session: () => request('/api/auth/session'),
   login: (input) => request('/api/auth/login', { method: 'POST', body: input }),
@@ -28,7 +32,7 @@ export const backendApi = Object.freeze({
   projects: (workspaceId) => request(`/api/workspaces/${encodeURIComponent(workspaceId)}/projects`),
   tasks: (workspaceId) => request(`/api/workspaces/${encodeURIComponent(workspaceId)}/tasks`),
   taskAssignees: (workspaceId, projectId = '') => request(`/api/workspaces/${encodeURIComponent(workspaceId)}/task-assignees${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`),
-  createTask: (workspaceId, input) => request(`/api/workspaces/${encodeURIComponent(workspaceId)}/tasks`, { method: 'POST', body: input }),
+  createTask: (workspaceId, input) => request(`/api/workspaces/${encodeURIComponent(workspaceId)}/tasks`, { method: 'POST', body: normalizeTaskInput(input) }),
   updateTask: (workspaceId, taskId, input) => request(`/api/workspaces/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}`, { method: 'PATCH', body: input }),
   createProject: (workspaceId, input) => request(`/api/workspaces/${encodeURIComponent(workspaceId)}/projects`, { method: 'POST', body: input }),
   renameProject: (workspaceId, projectId, input) => request(`/api/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}`, { method: 'PATCH', body: input }),

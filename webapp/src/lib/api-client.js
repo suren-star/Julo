@@ -28,8 +28,9 @@ async function request(path, { method = 'GET', body } = {}) {
   return payload;
 }
 
-function normalizeTaskInput(input) {
-  return { ...input, projectId: input?.projectId ? input.projectId : null };
+function normalizeTaskInput(input = {}) {
+  if (!Object.prototype.hasOwnProperty.call(input, 'projectId')) return { ...input };
+  return { ...input, projectId: input.projectId ? input.projectId : null };
 }
 
 export const backendApi = Object.freeze({

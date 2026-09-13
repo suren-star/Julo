@@ -9,10 +9,10 @@ import './mobile.css';
 import './auth/auth.css';
 import './auth/tasks.css';
 
-const isLoginRoute = /\/login\/?$/.test(window.location.pathname);
-
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    {isLoginRoute ? <AuthGateway><App /></AuthGateway> : <App />}
+    <AuthGateway>
+      {({ workspace, user }) => <App workspace={workspace} user={user} />}
+    </AuthGateway>
   </React.StrictMode>,
 );

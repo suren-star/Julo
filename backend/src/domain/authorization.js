@@ -8,12 +8,18 @@ export const ACTIONS = Object.freeze({
   PROJECT_CREATE: 'projects.create',
   PROJECT_UPDATE: 'projects.update',
   PROJECT_DELETE: 'projects.delete',
+  PROJECT_MEMBERS_MANAGE: 'projects.members.manage',
   TASK_CREATE: 'tasks.create',
   TASK_UPDATE: 'tasks.update',
   TASK_DELETE: 'tasks.delete',
   TASK_COMMENT: 'tasks.comment',
   TASK_TIMER: 'tasks.timer',
   TASK_READ: 'tasks.read',
+  NOTE_CREATE: 'notes.create',
+  NOTE_UPDATE: 'notes.update',
+  NOTE_DELETE: 'notes.delete',
+  NOTE_CONVERT: 'notes.convert',
+  NOTE_READ: 'notes.read',
 });
 
 const WORKSPACE_PERMISSIONS = Object.freeze({
@@ -25,12 +31,18 @@ const WORKSPACE_PERMISSIONS = Object.freeze({
     ACTIONS.PROJECT_CREATE,
     ACTIONS.PROJECT_UPDATE,
     ACTIONS.PROJECT_DELETE,
+    ACTIONS.PROJECT_MEMBERS_MANAGE,
     ACTIONS.TASK_CREATE,
     ACTIONS.TASK_UPDATE,
     ACTIONS.TASK_DELETE,
     ACTIONS.TASK_COMMENT,
     ACTIONS.TASK_TIMER,
     ACTIONS.TASK_READ,
+    ACTIONS.NOTE_CREATE,
+    ACTIONS.NOTE_UPDATE,
+    ACTIONS.NOTE_DELETE,
+    ACTIONS.NOTE_CONVERT,
+    ACTIONS.NOTE_READ,
   ]),
   member: new Set([
     ACTIONS.WORKSPACE_EXPORT,
@@ -42,11 +54,17 @@ const WORKSPACE_PERMISSIONS = Object.freeze({
     ACTIONS.TASK_COMMENT,
     ACTIONS.TASK_TIMER,
     ACTIONS.TASK_READ,
+    ACTIONS.NOTE_CREATE,
+    ACTIONS.NOTE_UPDATE,
+    ACTIONS.NOTE_DELETE,
+    ACTIONS.NOTE_CONVERT,
+    ACTIONS.NOTE_READ,
   ]),
   viewer: new Set([
     ACTIONS.WORKSPACE_EXPORT,
     ACTIONS.TASK_COMMENT,
     ACTIONS.TASK_READ,
+    ACTIONS.NOTE_READ,
   ]),
   guest: new Set(),
 });
@@ -70,13 +88,8 @@ const PROJECT_PERMISSIONS = Object.freeze({
   viewer: new Set([ACTIONS.TASK_READ]),
 });
 
-export function isWorkspaceRole(role) {
-  return WORKSPACE_ROLES.includes(role);
-}
-
-export function isProjectRole(role) {
-  return PROJECT_ROLES.includes(role);
-}
+export function isWorkspaceRole(role) { return WORKSPACE_ROLES.includes(role); }
+export function isProjectRole(role) { return PROJECT_ROLES.includes(role); }
 
 export function canWorkspace(workspaceRole, action) {
   const permissions = WORKSPACE_PERMISSIONS[workspaceRole];
@@ -92,22 +105,20 @@ export function canProject({ workspaceRole, projectRole, action }) {
 
 export function requireWorkspacePermission(workspaceRole, action) {
   if (!canWorkspace(workspaceRole, action)) {
-    const error = new Error('Forbidden.');
-    error.code = 'FORBIDDEN';
-    error.status = 403;
-    throw error;
+    const error = new Error('Forbidden.'); error.code = 'FORBIDDEN'; error.status = 403; throw error;
   }
 }
 
 export function requireProjectPermission(input) {
   if (!canProject(input)) {
-    const error = new Error('Forbidden.');
-    error.code = 'FORBIDDEN';
-    error.status = 403;
-    throw error;
+    const error = new Error('Forbidden.'); error.code = 'FORBIDDEN'; error.status = 403; throw error;
   }
 }
 
 export function canReopenCompletedTask(workspaceRole) {
   return workspaceRole === 'owner' || workspaceRole === 'admin';
+}
+
+export function getRoleDefaults() {
+  return Object.fromEntries(WORKSPACE_ROLES.map((role) => [role, [...WORKSPACE_PERMISSIONS[role]]]));
 }

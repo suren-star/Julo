@@ -55,6 +55,24 @@ export function normalizeProjectId(value) {
   return value == null || value === '' ? null : assertId(value, 'project_id');
 }
 
+export function normalizeTaskTags(value = []) {
+  if (!Array.isArray(value)) {
+    throw serviceError(400, 'invalid_tags', 'tags must be an array.');
+  }
+  if (value.length > 50) {
+    throw serviceError(400, 'too_many_tags', 'Too many task tags.');
+  }
+  const tags = [];
+  const seen = new Set();
+  for (const item of value) {
+    const tag = cleanText(item, { field: 'tag', max: 80, required: false });
+    if (!tag || seen.has(tag)) continue;
+    seen.add(tag);
+    tags.push(tag);
+  }
+  return tags;
+}
+
 export function assertTaskExecutionType(value, message = 'Execution type is invalid.') {
   if (!EXECUTION_TYPE_SET.has(value)) {
     throw serviceError(400, 'invalid_execution_type', message);

@@ -21,9 +21,9 @@ function normalizeAssignmentPatch(input) {
   if (input.assigneeUserIds.length > 100) throw serviceError(400,'too_many_assignees','Too many task assignees.');
   const assigneeUserIds = [...new Set(input.assigneeUserIds.map((id)=>assertId(id,'assignee_user_id')))];
   const primaryAssigneeUserId = input.primaryAssigneeUserId == null || input.primaryAssigneeUserId === '' ? null : assertId(input.primaryAssigneeUserId,'primary_assignee_user_id');
-  if (assigneeUserIds.length === 0 && primaryAssigneeUserId) throw serviceError(400,'primary_assignee_without_assignees','Primary assignee requires at least one assignee.');
-  if (assigneeUserIds.length > 0 && !primaryAssigneeUserId) throw serviceError(400,'primary_assignee_required','A primary assignee is required when task assignees are selected.');
-  if (primaryAssigneeUserId && !assigneeUserIds.includes(primaryAssigneeUserId)) throw serviceError(400,'primary_assignee_not_selected','Primary assignee must be one of the selected assignees.');
+  if (assigneeUserIds.length === 0) throw serviceError(400,'assignee_required','At least one task assignee is required.');
+  if (!primaryAssigneeUserId) throw serviceError(400,'primary_assignee_required','A primary assignee is required.');
+  if (!assigneeUserIds.includes(primaryAssigneeUserId)) throw serviceError(400,'primary_assignee_not_selected','Primary assignee must be one of the selected assignees.');
   return { assigneeUserIds, primaryAssigneeUserId };
 }
 

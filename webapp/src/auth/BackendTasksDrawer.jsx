@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { backendApi } from '../lib/api-client.js';
 
 const EXECUTION_TYPES = [
@@ -27,10 +27,31 @@ function toggleAssignee(form, userId, checked) {
 }
 
 function AssigneeDropdown({ candidates, value, onChange, disabled=false }) {
+  const rootRef = useRef(null);
+  const [isOpen,setIsOpen] = useState(false);
   const selected = new Set(value.assigneeUserIds || []);
   const selectedNames = candidates.filter((candidate)=>selected.has(candidate.id)).map(nameOf);
   const label = selectedNames.length ? selectedNames.join(', ') : 'Ընտրել կատարողներ';
-  return <label className="task-field"><span>Կատարողներ *</span><details className={disabled ? 'assignee-dropdown disabled' : 'assignee-dropdown'}>
+
+  useEffect(()=>{
+    if(!isOpen)return undefined;
+    const closeOnOutsidePointer=(event)=>{
+      if(rootRef.current&&!rootRef.current.contains(event.target))setIsOpen(false);
+    };
+    const closeOnEscape=(event)=>{
+      if(event.key==='Escape')setIsOpen(false);
+    };
+    document.addEventListener('pointerdown',closeOnOutsidePointer);
+    document.addEventListener('keydown',closeOnEscape);
+    return ()=>{
+      document.removeEventListener('pointerdown',closeOnOutsidePointer);
+      document.removeEventListener('keydown',closeOnEscape);
+    };
+  },[isOpen]);
+
+  useEffect(()=>{if(disabled)setIsOpen(false)},[disabled]);
+
+  return <label className="task-field"><span>Կատարողներ *</span><details ref={rootRef} open={isOpen} onToggle={(event)=>setIsOpen(event.currentTarget.open)} className={disabled ? 'assignee-dropdown disabled' : 'assignee-dropdown'}>
     <summary onClick={(event)=>{if(disabled)event.preventDefault()}}><span>{label}</span><b>⌄</b></summary>
     <div className="assignee-dropdown-menu">
       {candidates.length===0&&<div className="dropdown-empty">Հասանելի կատարողներ չկան։</div>}

@@ -24,6 +24,8 @@ function taskMutationTools(client, { workspaceId, taskId, userId }) {
         dueDate: 'due_date',
         priority: 'priority',
         status: 'status',
+        projectId: 'project_id',
+        tags: 'tags',
       };
       const values = [workspaceId, taskId, expectedVersion];
       const sets = [];
@@ -47,6 +49,41 @@ function taskMutationTools(client, { workspaceId, taskId, userId }) {
         values,
       );
       return result.rows[0] ?? null;
+    },
+
+    async projectExists(projectId) {
+      if (!projectId) return true;
+      const result = await client.query(
+        `SELECT id
+         FROM projects
+         WHERE workspace_id = $1 AND id = $2 AND archived_at IS NULL
+         LIMIT 1`,
+        [workspaceId, projectId],
+      );
+      return Boolean(result.rows[0]);
+    },
+
+    async projectRole(projectId) {
+      if (!projectId) return null;
+      const result = await client.query(
+        `SELECT role
+         FROM project_memberships
+         WHERE workspace_id = $1 AND project_id = $2 AND user_id = $3
+         LIMIT 1`,
+        [workspaceId, projectId, userId],
+      );
+      return result.rows[0]?.role ?? null;
+    },
+
+    async listAssigneeIds() {
+      const result = await client.query(
+        `SELECT user_id
+         FROM task_assignees
+         WHERE task_id = $1
+         ORDER BY is_primary DESC, user_id`,
+        [taskId],
+      );
+      return result.rows.map((row) => row.user_id);
     },
 
     async validateAssignees(projectId, assigneeUserIds) {
@@ -88,6 +125,39 @@ function taskMutationTools(client, { workspaceId, taskId, userId }) {
         'UPDATE tasks SET assignee_user_id = $3 WHERE workspace_id = $1 AND id = $2',
         [workspaceId, taskId, primaryAssigneeUserId],
       );
+    },
+
+    async addComment(commentId, body, now) {
+      const result = await client.query(
+        `INSERT INTO task_comments (id, workspace_id, task_id, author_user_id, body, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         RETURNING id, author_user_id, body, created_at, edited_at`,
+        [commentId, workspaceId, taskId, userId, body, now],
+      );
+      await client.query(
+        `UPDATE tasks SET updated_at = $3 WHERE workspace_id = $1 AND id = $2`,
+        [workspaceId, taskId, now],
+      );
+      const author = await client.query('SELECT display_name FROM users WHERE id = $1', [userId]);
+      const row = result.rows[0];
+      return {
+        id: row.id,
+        authorId: row.author_user_id,
+        authorName: author.rows[0]?.display_name ?? 'User',
+        text: row.body,
+        createdAt: row.created_at,
+        editedAt: row.edited_at,
+      };
+    },
+
+    async deleteTask(expectedVersion) {
+      const result = await client.query(
+        `DELETE FROM tasks
+         WHERE workspace_id = $1 AND id = $2 AND version = $3
+         RETURNING id, version`,
+        [workspaceId, taskId, expectedVersion],
+      );
+      return result.rows[0] ?? null;
     },
 
     async pauseOtherRunningTimers(now) {

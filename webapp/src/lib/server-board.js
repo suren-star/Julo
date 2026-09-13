@@ -15,24 +15,34 @@ export const WORKSPACE_ROLE_LABELS = Object.freeze({
 
 const MEMBER_TASK_ACTIONS = new Set(['create', 'update', 'delete', 'comment', 'timer']);
 const VIEWER_TASK_ACTIONS = new Set(['comment']);
-const GUEST_MANAGER_ACTIONS = new Set(['create', 'update', 'delete', 'timer']);
-const GUEST_EDITOR_ACTIONS = new Set(['create', 'update', 'delete', 'timer']);
+const PROJECT_MANAGER_ACTIONS = new Set(['create', 'update', 'delete', 'timer']);
+const PROJECT_EDITOR_ACTIONS = new Set(['create', 'update', 'delete', 'timer']);
+const PROJECT_MEMBER_TARGETS = Object.freeze({
+  owner: new Set(['admin', 'member', 'viewer', 'guest']),
+  admin: new Set(['member', 'viewer', 'guest']),
+  member: new Set(['viewer', 'guest']),
+  viewer: new Set(),
+  guest: new Set(),
+});
 
 export function canTaskAction(workspaceRole, projectRole, action) {
   if (workspaceRole === 'owner' || workspaceRole === 'admin') return true;
-  if (workspaceRole === 'member') return MEMBER_TASK_ACTIONS.has(action);
-  if (workspaceRole === 'viewer') return VIEWER_TASK_ACTIONS.has(action);
-  if (workspaceRole !== 'guest') return false;
-  if (projectRole === 'manager') return GUEST_MANAGER_ACTIONS.has(action);
-  if (projectRole === 'editor') return GUEST_EDITOR_ACTIONS.has(action);
+  if (workspaceRole === 'member' && MEMBER_TASK_ACTIONS.has(action)) return true;
+  if (workspaceRole === 'viewer' && VIEWER_TASK_ACTIONS.has(action)) return true;
+  if (projectRole === 'manager') return PROJECT_MANAGER_ACTIONS.has(action);
+  if (projectRole === 'editor') return PROJECT_EDITOR_ACTIONS.has(action);
   return false;
 }
 
 export function canProjectAction(workspaceRole, projectRole, action) {
   if (workspaceRole === 'owner' || workspaceRole === 'admin') return true;
-  if (workspaceRole === 'member') return action === 'create' || action === 'update';
-  if (workspaceRole === 'guest') return action === 'update' && projectRole === 'manager';
+  if (workspaceRole === 'member' && (action === 'create' || action === 'update')) return true;
+  if (action === 'update' && projectRole === 'manager') return true;
   return false;
+}
+
+export function canManageProjectMember(actorWorkspaceRole, targetWorkspaceRole) {
+  return Boolean(PROJECT_MEMBER_TARGETS[actorWorkspaceRole]?.has(targetWorkspaceRole));
 }
 
 export function canReopenCompletedTask(workspaceRole) {

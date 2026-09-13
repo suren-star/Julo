@@ -1,6 +1,7 @@
 function mapUser(row) {
   return {
     id: row.id,
+    usernameNormalized: row.username_normalized ?? null,
     emailNormalized: row.email_normalized,
     displayName: row.display_name,
     disabledAt: row.disabled_at,
@@ -28,12 +29,12 @@ export function createPostgresRepository(pool) {
   return {
     async ping() { const result = await pool.query('SELECT 1 AS ok'); return result.rows?.[0]?.ok === 1; },
 
-    async createRegistration({ userId, emailNormalized, displayName, passwordHash, workspaceId, workspaceName }) {
+    async createRegistration({ userId, usernameNormalized, emailNormalized, displayName, passwordHash, workspaceId, workspaceName }) {
       return withTransaction(pool, async (client) => {
         const userResult = await client.query(
-          `INSERT INTO users (id, email_normalized, display_name) VALUES ($1,$2,$3)
-           RETURNING id, email_normalized, display_name, disabled_at`,
-          [userId, emailNormalized, displayName],
+          `INSERT INTO users (id, username_normalized, email_normalized, display_name) VALUES ($1,$2,$3,$4)
+           RETURNING id, username_normalized, email_normalized, display_name, disabled_at`,
+          [userId, usernameNormalized, emailNormalized, displayName],
         );
         await client.query('INSERT INTO user_credentials (user_id, password_hash) VALUES ($1,$2)', [userId, passwordHash]);
         const workspaceResult = await client.query(
@@ -49,14 +50,19 @@ export function createPostgresRepository(pool) {
       });
     },
 
-    async findAuthUserByEmail(emailNormalized) {
+    async findAuthUserByIdentifier(identifier, kind) {
+      const column = kind === 'username' ? 'u.username_normalized' : 'u.email_normalized';
       const result = await pool.query(
-        `SELECT u.id, u.email_normalized, u.display_name, u.disabled_at, c.password_hash
+        `SELECT u.id, u.username_normalized, u.email_normalized, u.display_name, u.disabled_at, c.password_hash
          FROM users u JOIN user_credentials c ON c.user_id = u.id
-         WHERE u.email_normalized = $1 LIMIT 1`,
-        [emailNormalized],
+         WHERE ${column} = $1 LIMIT 1`,
+        [identifier],
       );
       return result.rows[0] ? mapUser(result.rows[0]) : null;
+    },
+
+    async findAuthUserByEmail(emailNormalized) {
+      return this.findAuthUserByIdentifier(emailNormalized, 'email');
     },
 
     async createSession({ id, userId, tokenHash, expiresAt }) {
@@ -69,7 +75,7 @@ export function createPostgresRepository(pool) {
     async findActiveSessionByTokenHash(tokenHash, at) {
       const result = await pool.query(
         `SELECT s.id AS session_id, s.expires_at,
-                u.id, u.email_normalized, u.display_name, u.disabled_at
+                u.id, u.username_normalized, u.email_normalized, u.display_name, u.disabled_at
          FROM sessions s JOIN users u ON u.id = s.user_id
          WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > $2 AND u.disabled_at IS NULL
          LIMIT 1`,
@@ -163,10 +169,10 @@ export function createPostgresRepository(pool) {
     async createTask(input) {
       return withTransaction(pool, async (client) => {
         const result = await client.query(
-          `INSERT INTO tasks (id, workspace_id, project_id, title, description, status, execution_type, due_date, priority, created_by)
-           VALUES ($1,$2,$3,$4,$5,'todo',$6,$7,$8,$9)
+          `INSERT INTO tasks (id, workspace_id, project_id, title, description, status, execution_type, due_date, priority, created_by, tags)
+           VALUES ($1,$2,$3,$4,$5,'todo',$6,$7,$8,$9,$10)
            RETURNING *`,
-          [input.id, input.workspaceId, input.projectId, input.title, input.description, input.executionType, input.dueDate, input.priority, input.createdBy]);
+          [input.id, input.workspaceId, input.projectId, input.title, input.description, input.executionType, input.dueDate, input.priority, input.createdBy, input.tags ?? []]);
         await client.query(
           `INSERT INTO task_timers (task_id, workspace_id, state, elapsed_ms) VALUES ($1,$2,'idle',0)`,
           [input.id, input.workspaceId]);

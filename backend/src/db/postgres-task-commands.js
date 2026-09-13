@@ -102,7 +102,7 @@ function taskMutationTools(client, { workspaceId, taskId, userId }) {
            AND u.disabled_at IS NULL
            AND (
              wm.role IN ('owner','admin','member')
-             OR (wm.role = 'guest' AND $2::uuid IS NOT NULL AND pm.role IN ('manager','editor'))
+             OR ($2::uuid IS NOT NULL AND pm.role IN ('manager','editor'))
            )`,
         [workspaceId, projectId, assigneeUserIds],
       );
@@ -351,7 +351,7 @@ export function createPostgresTaskCommandRepository(pool) {
         const task = taskResult.rows[0] ?? null;
 
         let projectRole = null;
-        if (task && membership.role === 'guest' && task.project_id) {
+        if (task?.project_id) {
           const projectMembership = await client.query(
             `SELECT role
              FROM project_memberships

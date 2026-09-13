@@ -187,26 +187,22 @@ function App({ workspace, user }) {
     if (!clean.title || !TASK_EXECUTION_TYPES[clean.executionType] || !clean.dueDate) return false;
     if (!clean.assigneeUserIds?.length || !clean.primaryAssigneeUserId) return false;
     if (guestRequiresProject && !clean.projectId) return false;
+    if (!canTask(clean.id ? 'update' : 'create', clean.projectId)) return false;
 
     const ok = await runMutation(async () => {
       if (!clean.id) {
-        const result = await backendApi.createTask(workspace.id, {
+        await backendApi.createTask(workspace.id, {
           title: clean.title,
           description: clean.description,
           projectId: clean.projectId,
           executionType: clean.executionType,
           dueDate: clean.dueDate,
           priority: clean.priority,
+          status: clean.status,
           tags: clean.tags,
           assigneeUserIds: clean.assigneeUserIds,
           primaryAssigneeUserId: clean.primaryAssigneeUserId,
         });
-        if (clean.status !== 'todo') {
-          await backendApi.updateTask(workspace.id, result.task.id, {
-            expectedVersion: Number(result.task.version || 1),
-            status: clean.status,
-          });
-        }
         return;
       }
 
@@ -286,6 +282,10 @@ function App({ workspace, user }) {
   const modalTask = editingTaskId
     ? tasks.find((task) => task.id === editingTaskId) || null
     : newTaskDraft;
+  const modalReadOnly = Boolean(modalTask?.id && !canTask('update', modalTask.projectId));
+  const modalProjects = modalReadOnly
+    ? projects
+    : projects.filter((project) => canTask(modalTask?.id ? 'update' : 'create', project.id));
   const headerTitle = view === 'today'
     ? 'Այսօրվա աշխատանքը'
     : view === 'done'
@@ -391,8 +391,8 @@ function App({ workspace, user }) {
         key={modalTask.id || 'new'}
         task={modalTask}
         workspace={workspace}
-        projects={projects}
-        readOnly={modalTask.id ? !canTask('update', modalTask.projectId) : false}
+        projects={modalProjects}
+        readOnly={modalReadOnly}
         canDelete={modalTask.id ? canTask('delete', modalTask.projectId) : false}
         canComment={modalTask.id ? canTask('comment', modalTask.projectId) : false}
         canUseTimer={modalTask.id ? canTask('timer', modalTask.projectId) : false}

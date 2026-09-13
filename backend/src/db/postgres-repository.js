@@ -233,11 +233,15 @@ export function createPostgresRepository(pool) {
       }
 
       const result = await pool.query(
-        `SELECT id, workspace_id, name, created_at, updated_at
-         FROM projects
-         WHERE workspace_id = $1 AND archived_at IS NULL
-         ORDER BY created_at, id`,
-        [workspaceId],
+        `SELECT p.id, p.workspace_id, p.name, p.created_at, p.updated_at, pm.role AS project_role
+         FROM projects p
+         LEFT JOIN project_memberships pm
+           ON pm.workspace_id = p.workspace_id
+          AND pm.project_id = p.id
+          AND pm.user_id = $2
+         WHERE p.workspace_id = $1 AND p.archived_at IS NULL
+         ORDER BY p.created_at, p.id`,
+        [workspaceId, userId],
       );
       return result.rows;
     },
@@ -260,7 +264,7 @@ export function createPostgresRepository(pool) {
            AND u.disabled_at IS NULL
            AND (
              wm.role IN ('owner','admin','member')
-             OR (wm.role = 'guest' AND $2::uuid IS NOT NULL AND pm.role IN ('manager','editor'))
+             OR ($2::uuid IS NOT NULL AND pm.role IN ('manager','editor'))
            )
          ORDER BY CASE wm.role WHEN 'owner' THEN 1 WHEN 'admin' THEN 2 WHEN 'member' THEN 3 ELSE 4 END,
                   u.display_name,

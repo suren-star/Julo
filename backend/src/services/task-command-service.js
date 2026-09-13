@@ -101,9 +101,7 @@ async function authorizeTargetProject(context, projectId, action) {
   if (!(await context.tx.projectExists(projectId))) {
     throw serviceError(404, 'project_not_found', 'Project not found.');
   }
-  const projectRole = context.membership.role === 'guest'
-    ? await context.tx.projectRole(projectId)
-    : null;
+  const projectRole = await context.tx.projectRole(projectId);
   requireProjectPermission({ workspaceRole: context.membership.role, projectRole, action });
 }
 

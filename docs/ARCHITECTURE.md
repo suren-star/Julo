@@ -9,7 +9,7 @@ This file defines the single supported development sequence for the backend-enab
 3. Every route enters through `AuthGateway`; there is no unauthenticated/local-first Board path.
 4. `AuthGateway` restores the server session, resolves the first accessible workspace, and renders `App` with the authenticated workspace and user.
 5. `App` is the canonical Board UI. Projects and tasks are loaded from the backend API and PostgreSQL.
-6. Notes and Owner/Admin project-team management are auxiliary drawers in the same authenticated shell.
+6. Notes and Owner/Admin/Member project-team management are auxiliary drawers in the same authenticated shell.
 7. All server calls go through `src/lib/api-client.js` with `credentials: include`.
 
 `login/index.html` is not a second application. It exists only because GitHub Pages needs a physical direct-route entry for `/Julo/login` and refreshes on that path.
@@ -62,11 +62,19 @@ The web client mirrors authorization only to hide or disable controls. The backe
 
 ## Role boundary
 
-Workspace roles are `owner`, `admin`, `member`, `viewer`, `guest`. Guest access is further scoped by project role `manager`, `editor` or `viewer`.
+Workspace roles are `owner`, `admin`, `member`, `viewer`, `guest`. A user may also have a project role `manager`, `editor` or `viewer` on a specific project.
 
-Project roles exist only for workspace members whose workspace role is `guest`. Owner/Admin/Member/Viewer behavior is defined by the workspace role and must not be altered by a project-role record.
+Project roles add project-scoped capabilities; they never remove capabilities already granted by the workspace role. For example, a workspace Viewer who is Project Manager can manage tasks inside that project, while remaining a Viewer elsewhere.
 
-A Guest who is assigned to a project task must be reassigned before their project access can be reduced to Viewer or removed. A project with assignees who are not eligible outside that project must be cleaned up before the project can be archived and its tasks moved to no project.
+Project-team assignment follows a strict workspace-role hierarchy:
+
+- Owner can assign project roles to Admin, Member, Viewer and Guest users;
+- Admin can assign project roles to Member, Viewer and Guest users;
+- Member can assign project roles to Viewer and Guest users;
+- Viewer and Guest cannot assign project roles;
+- no role can assign or modify a project role for a peer or a higher workspace role.
+
+Viewer and Guest users with Project Manager or Editor roles may be task assignees inside that project. If such a user is already assigned to project tasks, their project access must not be reduced to Project Viewer or removed until those tasks are reassigned. A project with assignees who are not eligible outside that project must be cleaned up before the project can be archived and its tasks moved to no project.
 
 The Board must use the server-returned workspace/project roles and never derive elevated permissions from client-owned data.
 

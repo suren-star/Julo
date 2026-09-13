@@ -51,7 +51,7 @@ export default function AuthGateway({ children }) {
     return <main className="auth-page"><div className="auth-card">Այս օգտատիրոջ համար հասանելի աշխատանքային տարածք չկա։</div></main>;
   }
 
-  const canManageProjects = ['owner', 'admin'].includes(state.workspace.role);
+  const canManageProjectTeam = ['owner', 'admin', 'member'].includes(state.workspace.role);
   const toggleDrawer = (name) => setDrawer((current) => current === name ? '' : name);
 
   const logout = async () => {
@@ -70,7 +70,7 @@ export default function AuthGateway({ children }) {
     <div className="backend-toolbar">
       <span>{state.session.user.displayName} · {state.workspace.role}</span>
       <button type="button" onClick={() => toggleDrawer('notes')}>◷ Հիշեցումներ</button>
-      {canManageProjects && <button type="button" onClick={() => toggleDrawer('team')}>♙ Նախագծի թիմ</button>}
+      {canManageProjectTeam && <button type="button" onClick={() => toggleDrawer('team')}>♙ Նախագծի թիմ</button>}
       <button type="button" onClick={logout}>Ելք</button>
     </div>
 
@@ -79,7 +79,7 @@ export default function AuthGateway({ children }) {
       open={drawer === 'notes'}
       onClose={() => setDrawer('')}
     />
-    {canManageProjects && <ProjectTeamDrawer
+    {canManageProjectTeam && <ProjectTeamDrawer
       workspace={state.workspace}
       open={drawer === 'team'}
       onClose={() => setDrawer('')}

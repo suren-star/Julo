@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { backendApi } from '../lib/api-client.js';
+import { WORKSPACE_ROLE_LABELS, canManageProjectMember } from '../lib/server-board.js';
 
 function displayName(member) {
   return member.display_name || member.displayName || member.username_normalized || member.username || member.id;
+}
+
+function workspaceRoleOf(member) {
+  return member.workspace_role || member.workspaceRole || member.role || '';
+}
+
+function projectRoleOf(member) {
+  return member.project_role || member.projectRole || '';
 }
 
 export default function ProjectTeamDrawer({ workspace, open, onClose }) {
@@ -117,16 +126,22 @@ export default function ProjectTeamDrawer({ workspace, open, onClose }) {
   };
 
   const assignedIds = useMemo(() => new Set(assigned.map((member) => member.id)), [assigned]);
-  const availableGuests = useMemo(
-    () => members.filter((member) => member.role === 'guest' && !assignedIds.has(member.id)),
-    [members, assignedIds],
+  const availableMembers = useMemo(
+    () => members.filter((member) => (
+      !assignedIds.has(member.id)
+      && canManageProjectMember(workspace?.role, workspaceRoleOf(member))
+    )),
+    [members, assignedIds, workspace?.role],
   );
 
   if (!open) return null;
 
   return <div className="backend-drawer">
     <div className="drawer-header">
-      <div><strong>Նախագծի թիմ</strong><span>Նախագծային դերերը կիրառվում են միայն Guest հասանելիության համար</span></div>
+      <div>
+        <strong>Նախագծի թիմ</strong>
+        <span>Սեփականատեր → բոլորը, Ադմինիստրատոր → Անդամ/Դիտորդ/Հյուր, Անդամ → Դիտորդ/Հյուր</span>
+      </div>
       <button type="button" onClick={onClose}>×</button>
     </div>
 
@@ -142,33 +157,57 @@ export default function ProjectTeamDrawer({ workspace, open, onClose }) {
       {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
     </select>
 
-    <h4>Վերագրված Guest-եր</h4>
+    <h4>Վերագրված թիմ</h4>
     <div className="assignment-list">
-      {assigned.map((member) => <div key={member.id}>
-        <span>
-          <b>{displayName(member)}</b>
-          <small>{member.username_normalized || member.username || ''} · {member.project_role || member.projectRole}</small>
-        </span>
-        <button type="button" disabled={busy} onClick={() => remove(member.id)}>Հեռացնել</button>
-      </div>)}
-      {selected && assigned.length === 0 && <div className="drawer-empty">Այս նախագծին դեռ Guest հասանելիություն չի տրվել։</div>}
+      {assigned.map((member) => {
+        const workspaceRole = workspaceRoleOf(member);
+        const manageable = canManageProjectMember(workspace?.role, workspaceRole);
+        return <div key={member.id}>
+          <span>
+            <b>{displayName(member)}</b>
+            <small>
+              {member.username_normalized || member.username || ''}
+              {' · '}{WORKSPACE_ROLE_LABELS[workspaceRole] || workspaceRole}
+            </small>
+          </span>
+          {manageable ? <>
+            <select
+              value={projectRoleOf(member)}
+              disabled={busy}
+              onChange={(event) => assign(member.id, event.target.value)}
+            >
+              <option value="manager">Կառավարիչ</option>
+              <option value="editor">Խմբագիր</option>
+              <option value="viewer">Դիտորդ</option>
+            </select>
+            <button type="button" disabled={busy} onClick={() => remove(member.id)}>Հեռացնել</button>
+          </> : <small>{projectRoleOf(member)}</small>}
+        </div>;
+      })}
+      {selected && assigned.length === 0 && <div className="drawer-empty">Այս նախագծին դեռ թիմ չի վերագրվել։</div>}
     </div>
 
-    <h4>Ավելացնել Guest աշխատանքային տարածքից</h4>
+    <h4>Ավելացնել աշխատանքային տարածքից</h4>
     <div className="assignment-list">
-      {availableGuests.map((member) => <div key={member.id}>
-        <span>
-          <b>{displayName(member)}</b>
-          <small>{member.username_normalized || member.username || ''} · Guest</small>
-        </span>
-        <select value="" disabled={busy || !selected} onChange={(event) => assign(member.id, event.target.value)}>
-          <option value="">Վերագրել…</option>
-          <option value="manager">Կառավարիչ</option>
-          <option value="editor">Խմբագիր</option>
-          <option value="viewer">Դիտորդ</option>
-        </select>
-      </div>)}
-      {selected && availableGuests.length === 0 && <div className="drawer-empty">Ավելացնելու հասանելի Guest օգտատեր չկա։</div>}
+      {availableMembers.map((member) => {
+        const workspaceRole = workspaceRoleOf(member);
+        return <div key={member.id}>
+          <span>
+            <b>{displayName(member)}</b>
+            <small>
+              {member.username_normalized || member.username || ''}
+              {' · '}{WORKSPACE_ROLE_LABELS[workspaceRole] || workspaceRole}
+            </small>
+          </span>
+          <select value="" disabled={busy || !selected} onChange={(event) => assign(member.id, event.target.value)}>
+            <option value="">Վերագրել…</option>
+            <option value="manager">Կառավարիչ</option>
+            <option value="editor">Խմբագիր</option>
+            <option value="viewer">Դիտորդ</option>
+          </select>
+        </div>;
+      })}
+      {selected && availableMembers.length === 0 && <div className="drawer-empty">Քո դերով վերագրելու հասանելի օգտատեր չկա։</div>}
     </div>
   </div>;
 }

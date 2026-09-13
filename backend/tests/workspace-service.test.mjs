@@ -59,9 +59,23 @@ test('empty project selection is normalized to null', async () => {
   assert.equal(task.projectId,null);
 });
 
-test('viewer cannot create task', async () => {
+test('viewer cannot create task without a project role', async () => {
   const service=createWorkspaceService(repoFor('viewer'));
   await assert.rejects(()=>service.createTask(ACTOR,'workspace-123',assignedTask()),(e)=>e.status===403);
+});
+
+test('viewer manager or editor can create inside the assigned project', async () => {
+  const managerService=createWorkspaceService(repoFor('viewer','manager'));
+  await managerService.createTask(ACTOR,'workspace-123',assignedTask({projectId:'project-123'}));
+
+  const editorService=createWorkspaceService(repoFor('viewer','editor'));
+  await editorService.createTask(ACTOR,'workspace-123',assignedTask({projectId:'project-123'}));
+
+  const projectViewerService=createWorkspaceService(repoFor('viewer','viewer'));
+  await assert.rejects(
+    ()=>projectViewerService.createTask(ACTOR,'workspace-123',assignedTask({projectId:'project-123'})),
+    (e)=>e.status===403,
+  );
 });
 
 test('guest editor can create only inside assigned project', async () => {

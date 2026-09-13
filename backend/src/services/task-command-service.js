@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { ACTIONS, requireProjectPermission } from '../domain/authorization.js';
 import { validateTaskStatusTransition } from '../domain/task-policy.js';
 import {
@@ -8,7 +9,9 @@ import {
   assertTaskStatus,
   cleanText,
   dateOnly,
+  normalizeProjectId,
   normalizeTaskAssignees,
+  normalizeTaskTags,
   serviceError,
 } from '../domain/service-validation.js';
 
@@ -20,6 +23,8 @@ const PATCH_KEYS = new Set([
   'dueDate',
   'priority',
   'status',
+  'projectId',
+  'tags',
   'assigneeUserIds',
   'primaryAssigneeUserId',
 ]);
@@ -65,6 +70,12 @@ function validatePatch(input) {
   if ('status' in input) {
     changes.status = assertTaskStatus(input.status);
   }
+  if ('projectId' in input) {
+    changes.projectId = normalizeProjectId(input.projectId);
+  }
+  if ('tags' in input) {
+    changes.tags = normalizeTaskTags(input.tags);
+  }
 
   const assignment = normalizeTaskAssignees(input, { patch: true });
   if (Object.keys(changes).length === 0 && !assignment) {
@@ -80,6 +91,20 @@ function authorizeContext(context, action) {
   }
   if (!context.task) throw serviceError(404, 'task_not_found', 'Task not found.');
   requireProjectPermission({ workspaceRole: context.membership.role, projectRole: context.projectRole, action });
+}
+
+async function authorizeTargetProject(context, projectId, action) {
+  if (!projectId) {
+    requireProjectPermission({ workspaceRole: context.membership.role, projectRole: null, action });
+    return;
+  }
+  if (!(await context.tx.projectExists(projectId))) {
+    throw serviceError(404, 'project_not_found', 'Project not found.');
+  }
+  const projectRole = context.membership.role === 'guest'
+    ? await context.tx.projectRole(projectId)
+    : null;
+  requireProjectPermission({ workspaceRole: context.membership.role, projectRole, action });
 }
 
 function timerState(context) {
@@ -105,6 +130,15 @@ export function createTaskCommandService(repository) {
             throw serviceError(409, 'task_version_conflict', 'Task changed since it was loaded.');
           }
 
+          const currentProjectId = projectIdOf(context.task);
+          const targetProjectId = Object.prototype.hasOwnProperty.call(patch.changes, 'projectId')
+            ? patch.changes.projectId
+            : currentProjectId;
+          const projectChanged = targetProjectId !== currentProjectId;
+          if (projectChanged) {
+            await authorizeTargetProject(context, targetProjectId, ACTIONS.TASK_UPDATE);
+          }
+
           const currentStatus = context.task.status;
           const nextStatus = patch.changes.status ?? currentStatus;
           const transition = validateTaskStatusTransition({
@@ -116,12 +150,18 @@ export function createTaskCommandService(repository) {
             throw serviceError(409, transition.reason, 'Task status transition is not allowed.');
           }
 
-          const now = new Date();
-          if (patch.assignment) {
-            const invalid = await context.tx.validateAssignees(projectIdOf(context.task), patch.assignment.assigneeUserIds);
+          const assigneeUserIds = patch.assignment
+            ? patch.assignment.assigneeUserIds
+            : projectChanged ? await context.tx.listAssigneeIds() : null;
+          if (assigneeUserIds) {
+            const invalid = await context.tx.validateAssignees(targetProjectId, assigneeUserIds);
             if (invalid.length) {
               throw serviceError(400, 'ineligible_task_assignee', 'One or more selected users cannot be assigned to this task.');
             }
+          }
+
+          const now = new Date();
+          if (patch.assignment) {
             await context.tx.replaceAssignees(
               patch.assignment.assigneeUserIds,
               patch.assignment.primaryAssigneeUserId,
@@ -145,6 +185,12 @@ export function createTaskCommandService(repository) {
             toVersion: patch.version + 1,
           });
           if (patch.assignment) await context.tx.audit('task.assignees.changed', patch.assignment);
+          if (projectChanged) {
+            await context.tx.audit('task.project.changed', {
+              from: currentProjectId,
+              to: targetProjectId,
+            });
+          }
           if (currentStatus !== nextStatus) {
             await context.tx.audit('task.status.changed', {
               from: currentStatus,
@@ -161,6 +207,44 @@ export function createTaskCommandService(repository) {
                 primaryAssigneeUserId: patch.assignment.primaryAssigneeUserId,
               }
             : updated;
+        },
+      );
+    },
+
+    async addComment(userId, workspaceId, taskId, input) {
+      const safeWorkspaceId = assertId(workspaceId, 'workspace_id');
+      const safeTaskId = assertId(taskId, 'task_id');
+      const body = cleanText(input?.body, { field: 'comment', max: 10_000 });
+
+      return repository.withTaskMutationContext(
+        { userId, workspaceId: safeWorkspaceId, taskId: safeTaskId },
+        async (context) => {
+          authorizeContext(context, ACTIONS.TASK_COMMENT);
+          const comment = await context.tx.addComment(randomUUID(), body, new Date());
+          await context.tx.audit('task.comment.created', { commentId: comment.id });
+          return comment;
+        },
+      );
+    },
+
+    async deleteTask(userId, workspaceId, taskId, input) {
+      const safeWorkspaceId = assertId(workspaceId, 'workspace_id');
+      const safeTaskId = assertId(taskId, 'task_id');
+      const expectedVersion = assertExpectedVersion(input?.expectedVersion);
+
+      return repository.withTaskMutationContext(
+        { userId, workspaceId: safeWorkspaceId, taskId: safeTaskId },
+        async (context) => {
+          authorizeContext(context, ACTIONS.TASK_DELETE);
+          if (currentVersion(context.task) !== expectedVersion) {
+            throw serviceError(409, 'task_version_conflict', 'Task changed since it was loaded.');
+          }
+          await context.tx.audit('task.deleted', { version: expectedVersion });
+          const deleted = await context.tx.deleteTask(expectedVersion);
+          if (!deleted) {
+            throw serviceError(409, 'task_version_conflict', 'Task changed since it was loaded.');
+          }
+          return true;
         },
       );
     },

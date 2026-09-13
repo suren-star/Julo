@@ -15,6 +15,15 @@ export function normalizeEmail(value) {
   return email;
 }
 
+export function normalizeUsername(value) {
+  if (typeof value !== 'string') throw new AuthError(400, 'invalid_username', 'Username is required.');
+  const username = value.trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(username)) {
+    throw new AuthError(400, 'invalid_username', 'Username must be 3-32 characters using letters, numbers, dot, underscore or dash.');
+  }
+  return username;
+}
+
 function cleanText(value, { field, min = 1, max }) {
   if (typeof value !== 'string') throw new AuthError(400, `invalid_${field}`, `${field} is required.`);
   const cleaned = value.trim();
@@ -22,7 +31,9 @@ function cleanText(value, { field, min = 1, max }) {
   return cleaned;
 }
 
-function publicUser(row) { return { id: row.id, email: row.emailNormalized, displayName: row.displayName }; }
+function publicUser(row) {
+  return { id: row.id, username: row.usernameNormalized ?? null, email: row.emailNormalized, displayName: row.displayName };
+}
 
 export function createAuthService(repository, { now = () => new Date(), sessionTtlSeconds = DEFAULT_SESSION_TTL_SECONDS } = {}) {
   if (!repository) throw new TypeError('repository is required');
@@ -40,6 +51,7 @@ export function createAuthService(repository, { now = () => new Date(), sessionT
 
   return {
     async register(input) {
+      const usernameNormalized = normalizeUsername(input?.username);
       const emailNormalized = normalizeEmail(input?.email);
       const displayName = cleanText(input?.displayName, { field: 'display_name', max: 160 });
       const workspaceName = cleanText(input?.workspaceName ?? 'Julo Workspace', { field: 'workspace_name', max: 160 });
@@ -48,9 +60,9 @@ export function createAuthService(repository, { now = () => new Date(), sessionT
       const workspaceId = randomUUID();
       let result;
       try {
-        result = await repository.createRegistration({ userId, emailNormalized, displayName, passwordHash, workspaceId, workspaceName, createdAt: now() });
+        result = await repository.createRegistration({ userId, usernameNormalized, emailNormalized, displayName, passwordHash, workspaceId, workspaceName, createdAt: now() });
       } catch (error) {
-        if (error?.code === '23505') throw new AuthError(409, 'email_already_registered', 'Email is already registered.');
+        if (error?.code === '23505') throw new AuthError(409, 'identity_already_registered', 'Username or email is already registered.');
         throw error;
       }
       const session = await issueSession(userId);
@@ -58,12 +70,17 @@ export function createAuthService(repository, { now = () => new Date(), sessionT
     },
 
     async login(input) {
-      const emailNormalized = normalizeEmail(input?.email);
-      const user = await repository.findAuthUserByEmail(emailNormalized);
+      const rawIdentifier = input?.identifier ?? input?.username ?? input?.email;
+      if (typeof rawIdentifier !== 'string' || !rawIdentifier.trim()) throw new AuthError(400, 'invalid_identifier', 'Username or email is required.');
+      const kind = rawIdentifier.includes('@') ? 'email' : 'username';
+      const identifier = kind === 'email' ? normalizeEmail(rawIdentifier) : normalizeUsername(rawIdentifier);
+      const user = repository.findAuthUserByIdentifier
+        ? await repository.findAuthUserByIdentifier(identifier, kind)
+        : await repository.findAuthUserByEmail(identifier);
       const passwordHash = user?.passwordHash ?? await getDummyHash();
       const passwordValid = await verifyPassword(input?.password ?? '', passwordHash);
       const valid = Boolean(user && !user.disabledAt && passwordValid);
-      if (!valid) throw new AuthError(401, 'invalid_credentials', 'Email or password is invalid.');
+      if (!valid) throw new AuthError(401, 'invalid_credentials', 'Username/email or password is invalid.');
       const session = await issueSession(user.id);
       return { user: publicUser(user), session };
     },

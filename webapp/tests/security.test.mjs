@@ -16,6 +16,16 @@ test('main Board has no legacy local task engine imports', () => {
   assert.match(appSource, /backendApi\.deleteTask/);
 });
 
+test('new Board task is created with its initial status in one request', () => {
+  assert.match(appSource, /backendApi\.createTask\([\s\S]*?status: clean\.status,[\s\S]*?primaryAssigneeUserId: clean\.primaryAssigneeUserId/);
+  assert.doesNotMatch(appSource, /if \(clean\.status !== 'todo'\)[\s\S]*?backendApi\.updateTask/);
+});
+
+test('editable task project choices follow task permission boundaries', () => {
+  assert.match(appSource, /projects\.filter\(\(project\) => canTask\(modalTask\?\.id \? 'update' : 'create', project\.id\)\)/);
+  assert.match(appSource, /if \(!canTask\(clean\.id \? 'update' : 'create', clean\.projectId\)\) return false/);
+});
+
 test('all web routes enter through AuthGateway', () => {
   assert.match(mainSource, /<AuthGateway>/);
   assert.doesNotMatch(mainSource, /isLoginRoute/);

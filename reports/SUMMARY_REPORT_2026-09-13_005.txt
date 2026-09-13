@@ -1,0 +1,337 @@
+JULO DAILY SUMMARY REPORT
+Date: 2026-09-13
+Sequence: 005
+Repository: suren-star/Julo
+Scope: Board consolidation, project-team permissions, CI, deploys, production fixes, role labels
+
+============================================================
+1. SOURCE OF TRUTH AND STARTING POINT
+============================================================
+
+The repository was inspected directly and GitHub main was used as the source of truth.
+
+The audit corrected an important assumption from the earlier conversation history:
+- the active Board was already server-backed;
+- tasks and projects were loaded through backend APIs;
+- task create/update/delete/comment/timer operations were already server-side;
+- localStorage was not an authoritative task store and remained only for theme preference.
+
+Therefore the work shifted from “migrate Board from localStorage” to “finish consolidation of the existing server Board, remove inconsistencies and harden permissions”.
+
+Backup retained before consolidation:
+- backup/pre-board-consolidation-2026-09-13
+
+============================================================
+2. SERVER BOARD CONSOLIDATION — PR #5
+============================================================
+
+Branch:
+- refactor/server-board-consolidation
+
+PR:
+- #5 — refactor: consolidate server-backed Board task flow
+
+Merged commit:
+- d2a858c70b6b09392900faf402240ace6c840c63
+
+Main changes:
+
+2.1 Atomic task creation
+- Removed the create-then-second-update status sequence.
+- Initial task status is now persisted in the same backend create transaction.
+- Creating a task directly in Done persists completed task state and completed/stopped timer state atomically.
+- This avoids half-created Todo tasks if a second request fails.
+
+2.2 Project-aware task permissions
+- Task save re-checks permission for the destination project.
+- Project choices in task create/edit respect task mutation permissions.
+- Moving a task into a project the actor cannot modify is blocked.
+
+2.3 Project creation restored inside task flow
+The task Project selector again supports:
+- selecting an existing project;
+- creating a new project from the same task flow.
+
+New projects use the canonical server Project API; no parallel storage implementation was added.
+
+2.4 Assignment consistency
+The existing assignment invariants remain enforced:
+- at least one assignee;
+- a primary assignee is required;
+- the primary assignee must be one of the selected assignees.
+
+Changing the project causes assignee eligibility to be re-evaluated.
+
+2.5 Server data safety
+At this stage, project-scoped assignees were protected from losing project access while still assigned to project tasks, and projects with scoped task assignees could not be archived until assignments were made valid.
+
+2.6 Validation
+Before merge:
+- Backend CI: SUCCESS
+- Webapp validate/build: SUCCESS
+
+After merge:
+- GitHub Pages production deploy: SUCCESS
+- Render backend was deployed successfully on d2a858c… at that stage.
+
+============================================================
+3. PROJECT TEAM ROLE MODEL CORRECTION
+============================================================
+
+The previous Guest-only project-role model was rejected as too restrictive.
+
+The agreed project-team assignment hierarchy is now:
+
+OWNER
+- may assign project roles to Admin
+- may assign project roles to Member
+- may assign project roles to Viewer
+- may assign project roles to Guest
+
+ADMIN
+- may assign project roles to Member
+- may assign project roles to Viewer
+- may assign project roles to Guest
+
+MEMBER
+- may assign project roles to Viewer
+- may assign project roles to Guest
+
+VIEWER
+- cannot manage project-team assignments
+
+GUEST
+- cannot manage project-team assignments
+
+General rule:
+- a role cannot manage a peer or a higher workspace role;
+- Owner is the top-level authority and may manage all lower workspace roles.
+
+The rule is enforced in backend authorization as well as UI filtering.
+
+============================================================
+4. PROJECT ROLE CAPABILITIES — PR #6
+============================================================
+
+Branch:
+- feat/project-role-assignment-hierarchy
+
+PR:
+- #6 — feat: enforce project team assignment hierarchy
+
+Merged commit:
+- 2227c7bea2e72fac5592f251a9ad14273c57122e
+
+Main changes:
+
+4.1 Project roles are no longer Guest-only
+Project roles can now be assigned to eligible workspace roles according to the hierarchy above.
+
+4.2 Workspace role + project role model
+- Workspace role remains the user’s base/global role.
+- Project role does not remove workspace permissions.
+- Project role can add permissions inside one project.
+
+Example:
+- Workspace Viewer + Project Manager gains Manager-level project/task capabilities only in that project.
+- Outside the project, the user remains a Viewer at workspace level.
+
+4.3 Project Team UI
+- Project Team drawer is available to Owner/Admin/Member.
+- Users available for assignment are filtered according to the hierarchy.
+- Existing project roles can only be modified/removed if the current actor is allowed to manage that target workspace role.
+
+4.4 Project task capability propagation
+Project Manager/Editor capabilities were wired into project-scoped task authorization instead of being treated as display-only labels.
+
+============================================================
+5. PR #6 CI FAILURE AND FIX
+============================================================
+
+The first PR #6 backend validation run FAILED.
+
+Failure location:
+- backend/tests/task-assignees.test.mjs
+
+Observed error:
+- repository.getProjectMembership is not a function
+
+Affected tests included:
+- task creation accepts multiple assignees and one selected primary assignee
+- ineligible viewer cannot be assigned as task performer
+
+Root cause:
+- runtime authorization was extended to request project membership through getProjectMembership();
+- an older unit-test repository stub did not implement the newly required repository contract;
+- this was a regression in the test fixture, not a production runtime logic failure.
+
+Fix:
+- the task-assignees test repository fixture was updated to implement the new project-membership lookup contract.
+
+Fix commit:
+- 1ae8ce4cf2ac0add2b4a7761c52f47b79afecad3
+
+Final PR validation after the fix:
+- Backend CI run #89: SUCCESS
+- Webapp run #60: SUCCESS
+
+Only after both checks were green was PR #6 merged.
+
+============================================================
+6. PRODUCTION DEPLOY ISSUE — STALE RENDER BACKEND
+============================================================
+
+This was the main production incident of the day.
+
+User-visible error in Project Team:
+- “Project roles are only used for Guest workspace members.”
+
+Why this error appeared:
+- the webapp/frontend had the new project-team hierarchy logic;
+- the production Render backend was still running the older d2a858c… version;
+- that older backend still enforced the previous Guest-only project-role validation;
+- therefore the frontend allowed selecting a role for Admin/Member/Viewer, but the stale backend rejected the request.
+
+This was a frontend/backend deployment-version mismatch, not a new hierarchy-design error.
+
+6.1 Render branch configuration issue
+Render service:
+- julo-test-api
+- service id: srv-daj74vuk1f9s73chchsg
+
+Render was still configured to deploy from:
+- backend-auth-foundation
+
+rather than directly from:
+- main
+
+The backend-auth-foundation branch was safely fast-forwarded to the new production commit rather than force-rewritten.
+
+6.2 Auto-deploy did not trigger as expected
+After the branch was fast-forwarded, Render did not immediately create a new deployment from the updated branch.
+
+At that point Render still showed the previous live deployment:
+- commit d2a858c70b6b09392900faf402240ace6c840c63
+
+This explained why the old Guest-only validation remained visible in production.
+
+6.3 Manual deployment resolution
+A deploy was triggered through the Render API after confirming the tracked branch pointed to the correct commit.
+
+Final backend deployment:
+- commit: 2227c7bea2e72fac5592f251a9ad14273c57122e
+- Render deploy id: dep-dajcubp594qs73bna5mg
+- trigger: api
+- status: LIVE
+- started: 2026-09-13T16:28:31Z
+- finished: 2026-09-13T16:29:03Z
+
+The prior d2a858c… deployment was then deactivated.
+
+Final verified backend production state:
+- project-team hierarchy backend code is LIVE on Render at 2227c7b…
+
+Operational lesson:
+- because Render tracks backend-auth-foundation instead of main, merging main alone is not sufficient;
+- the tracked branch must be synchronized and the resulting Render deploy must be explicitly verified;
+- webhook/auto-deploy should not be assumed successful solely from a GitHub branch update.
+
+Recommended future cleanup:
+- reconfigure Render to follow main directly, or define a clearly documented backend release branch and deployment procedure;
+- always verify Render deploy commit SHA after backend production changes.
+
+============================================================
+7. PROJECT ROLE LABEL CLEANUP
+============================================================
+
+The Armenian display labels were changed as requested:
+
+Old UI labels:
+- Կառավարիչ
+- Խմբագիր
+- Դիտորդ
+
+New UI labels:
+- Ղեկավար
+- Կատարող
+- Դիտորդ
+
+Internal keys were deliberately NOT changed:
+- manager
+- editor
+- viewer
+
+Reason:
+- avoids database/API migration;
+- preserves existing project-member records;
+- keeps backend authorization semantics stable while changing only presentation terminology.
+
+Label commit on main:
+- 9ea1f288557e6901dc758f70df624af5758d589a
+- message: fix: rename project role labels
+
+GitHub Pages deployment for this commit:
+- Deploy Julo Webapp to GitHub Pages run #46
+- status: SUCCESS
+
+This change is webapp-only and does not require a backend redeploy.
+
+============================================================
+8. FINAL VERIFIED STATE AT REPORT TIME
+============================================================
+
+GitHub main:
+- latest application commit before this report: 9ea1f288557e6901dc758f70df624af5758d589a
+
+Backend production on Render:
+- 2227c7bea2e72fac5592f251a9ad14273c57122e
+- status: LIVE
+
+This backend/frontend difference is expected because 9ea1f288… contains only UI role-label changes.
+
+Frontend production:
+- GitHub Pages deployment for 9ea1f288…: SUCCESS
+
+Role assignment behavior now intended to be:
+- Owner → Admin, Member, Viewer, Guest
+- Admin → Member, Viewer, Guest
+- Member → Viewer, Guest
+- Viewer → none
+- Guest → none
+
+Project role display names:
+- manager = Ղեկավար
+- editor = Կատարող
+- viewer = Դիտորդ
+
+============================================================
+9. NEXT RECOMMENDED CHECKPOINT
+============================================================
+
+Perform a production smoke test with real role accounts:
+
+1. Owner assigns project roles to Admin/Member/Viewer/Guest.
+2. Admin assigns roles to Member/Viewer/Guest and is blocked from managing Admin/Owner.
+3. Member assigns roles to Viewer/Guest and is blocked from managing Member/Admin/Owner.
+4. Viewer/Guest cannot manage the project team.
+5. Viewer + Project Manager / Editor receives the intended project-scoped task capabilities.
+6. Project role removal/downgrade does not leave invalid task assignments.
+7. Task create/edit/project change/assignee flow still passes after hierarchy changes.
+8. Confirm the old error “Project roles are only used for Guest workspace members.” no longer appears against the live backend.
+
+============================================================
+10. IMPORTANT REFERENCE POINT FOR FUTURE WORK
+============================================================
+
+The current permission architecture should continue from:
+
+Workspace Role
+    + Project Role
+    + Task-specific assignment / scope
+
+without creating a second parallel permission model.
+
+Potential future enhancement previously identified:
+- assigned-only task editing / task-scope permissions similar to granular project-management platforms.
+
+END OF REPORT

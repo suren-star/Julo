@@ -8,7 +8,8 @@ import './design-system.css';
 import './mobile.css';
 import './auth/auth.css';
 
-const backendEnabled = import.meta.env.VITE_JULO_BACKEND_ENABLED === 'true';
+const loginEntry = /\/login\/?$/.test(window.location.pathname);
+const backendEnabled = loginEntry || import.meta.env.VITE_JULO_BACKEND_ENABLED === 'true';
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>

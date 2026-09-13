@@ -17,6 +17,7 @@ function createRepo() {
     created,
     async getWorkspaceMembership() { return { workspace_id: WORKSPACE, user_id: OWNER, role: 'owner', status: 'active' }; },
     async getProject() { return { id: PROJECT, workspace_id: WORKSPACE }; },
+    async getProjectMembership() { return null; },
     async listEligibleTaskAssignees() {
       return [
         { id: OWNER, workspace_role: 'owner' },

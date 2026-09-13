@@ -26,6 +26,12 @@ test('editable task project choices follow task permission boundaries', () => {
   assert.match(appSource, /if \(!canTask\(clean\.id \? 'update' : 'create', clean\.projectId\)\) return false/);
 });
 
+test('task project dropdown can create a project only for project creators', () => {
+  assert.match(appSource, /canCreateProject=\{canProject\('create'\)\}/);
+  assert.match(appSource, /value="__create_project__"/);
+  assert.match(appSource, /nextProjectId = await onCreateProject\(\)/);
+});
+
 test('all web routes enter through AuthGateway', () => {
   assert.match(mainSource, /<AuthGateway>/);
   assert.doesNotMatch(mainSource, /isLoginRoute/);

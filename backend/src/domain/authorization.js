@@ -48,6 +48,7 @@ const WORKSPACE_PERMISSIONS = Object.freeze({
     ACTIONS.WORKSPACE_EXPORT,
     ACTIONS.PROJECT_CREATE,
     ACTIONS.PROJECT_UPDATE,
+    ACTIONS.PROJECT_MEMBERS_MANAGE,
     ACTIONS.TASK_CREATE,
     ACTIONS.TASK_UPDATE,
     ACTIONS.TASK_DELETE,
@@ -88,6 +89,14 @@ const PROJECT_PERMISSIONS = Object.freeze({
   viewer: new Set([ACTIONS.TASK_READ]),
 });
 
+const PROJECT_MEMBER_TARGETS = Object.freeze({
+  owner: new Set(['admin', 'member', 'viewer', 'guest']),
+  admin: new Set(['member', 'viewer', 'guest']),
+  member: new Set(['viewer', 'guest']),
+  viewer: new Set(),
+  guest: new Set(),
+});
+
 export function isWorkspaceRole(role) { return WORKSPACE_ROLES.includes(role); }
 export function isProjectRole(role) { return PROJECT_ROLES.includes(role); }
 
@@ -98,9 +107,12 @@ export function canWorkspace(workspaceRole, action) {
 
 export function canProject({ workspaceRole, projectRole, action }) {
   if (canWorkspace(workspaceRole, action)) return true;
-  if (workspaceRole !== 'guest') return false;
   const permissions = PROJECT_PERMISSIONS[projectRole];
   return Boolean(permissions?.has(action));
+}
+
+export function canManageProjectMember(actorWorkspaceRole, targetWorkspaceRole) {
+  return Boolean(PROJECT_MEMBER_TARGETS[actorWorkspaceRole]?.has(targetWorkspaceRole));
 }
 
 export function requireWorkspacePermission(workspaceRole, action) {

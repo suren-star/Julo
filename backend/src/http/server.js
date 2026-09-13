@@ -46,17 +46,43 @@ function parseCookies(header) {
 
 function requestIp(req) { return req.socket?.remoteAddress || 'unknown'; }
 
-function enforceBrowserMutationPolicy(req, allowedOrigins) {
-  const fetchSite = String(req.headers['sec-fetch-site'] ?? '').toLowerCase();
-  if (fetchSite === 'cross-site') throw new AuthError(403, 'cross_site_request_blocked', 'Cross-site mutation is not allowed.');
-  const origin = req.headers.origin;
-  if (origin && allowedOrigins.length > 0 && !allowedOrigins.includes(origin)) throw new AuthError(403, 'origin_not_allowed', 'Origin is not allowed.');
+function originIsAllowed(req, allowedOrigins) {
+  const origin = String(req.headers.origin ?? '');
+  return Boolean(origin && allowedOrigins.includes(origin));
 }
 
-export function createHttpServer({ authService, workspaceService, taskCommandService, projectNotesService, repository, secureCookies = true, allowedOrigins = [], authRateLimiter = createFixedWindowRateLimiter({ limit: 12, windowMs: 60_000 }) }) {
+function applyCors(req, res, allowedOrigins) {
+  const origin = String(req.headers.origin ?? '');
+  if (!origin || !allowedOrigins.includes(origin)) return false;
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,PUT,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  return true;
+}
+
+function enforceBrowserMutationPolicy(req, allowedOrigins) {
+  const fetchSite = String(req.headers['sec-fetch-site'] ?? '').toLowerCase();
+  const origin = String(req.headers.origin ?? '');
+  if (origin) {
+    if (!allowedOrigins.includes(origin)) throw new AuthError(403, 'origin_not_allowed', 'Origin is not allowed.');
+    return;
+  }
+  if (fetchSite === 'cross-site') throw new AuthError(403, 'cross_site_request_blocked', 'Cross-site mutation is not allowed.');
+}
+
+export function createHttpServer({ authService, workspaceService, taskCommandService, projectNotesService, repository, secureCookies = true, crossSiteCookies = false, allowedOrigins = [], authRateLimiter = createFixedWindowRateLimiter({ limit: 12, windowMs: 60_000 }) }) {
   if (!authService) throw new TypeError('authService is required');
   const server = http.createServer(async (req, res) => {
     try {
+      const corsAllowed = applyCors(req, res, allowedOrigins);
+      if (req.method === 'OPTIONS') {
+        if (req.headers.origin && !corsAllowed) return json(res, 403, { error: { code: 'origin_not_allowed', message: 'Origin is not allowed.' } });
+        res.writeHead(204, { 'Cache-Control': 'no-store' });
+        return res.end();
+      }
+
       const url = new URL(req.url ?? '/', 'http://localhost');
       if (req.method === 'GET' && url.pathname === '/health') {
         const db = repository?.ping ? await repository.ping() : true;
@@ -66,6 +92,7 @@ export function createHttpServer({ authService, workspaceService, taskCommandSer
 
       const cookies = parseCookies(req.headers.cookie);
       const token = cookies.get(SESSION_COOKIE_NAME);
+      const sameSite = crossSiteCookies ? 'None' : 'Lax';
 
       if (req.method === 'POST' && ['/api/auth/register','/api/auth/login'].includes(url.pathname)) {
         enforceBrowserMutationPolicy(req, allowedOrigins);
@@ -74,13 +101,13 @@ export function createHttpServer({ authService, workspaceService, taskCommandSer
         const input = await readJson(req);
         const result = url.pathname.endsWith('/register') ? await authService.register(input) : await authService.login(input);
         return json(res, url.pathname.endsWith('/register') ? 201 : 200, { user: result.user, workspace: result.workspace }, {
-          'Set-Cookie': serializeSessionCookie(result.session.token, { maxAgeSeconds: result.session.maxAgeSeconds, secure: secureCookies }),
+          'Set-Cookie': serializeSessionCookie(result.session.token, { maxAgeSeconds: result.session.maxAgeSeconds, secure: secureCookies, sameSite }),
         });
       }
 
       if (req.method === 'POST' && url.pathname === '/api/auth/logout') {
         enforceBrowserMutationPolicy(req, allowedOrigins); await authService.logout(token);
-        return json(res, 200, { ok: true }, { 'Set-Cookie': serializeExpiredSessionCookie({ secure: secureCookies }) });
+        return json(res, 200, { ok: true }, { 'Set-Cookie': serializeExpiredSessionCookie({ secure: secureCookies, sameSite }) });
       }
 
       if (req.method === 'GET' && url.pathname === '/api/auth/session') {
